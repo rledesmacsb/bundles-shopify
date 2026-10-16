@@ -350,6 +350,25 @@ function isReviewStatus(
   );
 }
 
+function getShopifyAdminProductHref(
+  productId:
+    string,
+) {
+  const numericId =
+    productId
+      .split("/")
+      .filter(
+        Boolean,
+      )
+      .at(
+        -1,
+      );
+
+  return numericId
+    ? `shopify:admin/products/${numericId}`
+    : "shopify:admin/products";
+}
+
 /* =========================================================
    COMPONENT
 ========================================================= */
@@ -1133,6 +1152,16 @@ export default function Bundles() {
           font-size: 10px;
         }
 
+        .csb-existing-product__link {
+          color: #6842a7;
+          font-weight: 650;
+          text-decoration: none;
+        }
+
+        .csb-existing-product__link:hover {
+          text-decoration: underline;
+        }
+
         .csb-value-label {
           display: block;
           margin-bottom: 3px;
@@ -1782,13 +1811,22 @@ export default function Bundles() {
 
                         Shopify:{" "}
 
-                        <strong>
+                        <a
+                          className="csb-existing-product__link"
+                          href={
+                            getShopifyAdminProductHref(
+                              match
+                                .existingProduct
+                                .id,
+                            )
+                          }
+                        >
                           {
                             match
                               .existingProduct
                               .title
                           }
-                        </strong>
+                        </a>
 
                       </div>
                     )}
