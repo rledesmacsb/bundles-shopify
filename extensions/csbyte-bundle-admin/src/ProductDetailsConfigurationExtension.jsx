@@ -1,64 +1,84 @@
 import "@shopify/ui-extensions/preact";
-import {render} from 'preact';
-import {useState, useEffect} from 'preact/hooks';
+import {render} from "preact";
 
 export default async () => {
-  render(<Extension />, document.body);
-}
+  render(
+    <Extension />,
+    document.body,
+  );
+};
 
 function Extension() {
-  const {extension: {target}, i18n} = shopify;
-  const product = useProduct();
+  const product =
+    shopify.data.product;
+
+  const components =
+    product?.productComponents ??
+    [];
+
   return (
-    <s-stack direction="block">
-      <s-text>
-        {i18n.translate('welcome', {target})}
-      </s-text>
-      {product?.bundleComponents.map((component) =>
-        <s-text key={component.id}>{component.title}</s-text>
-      )}
-    </s-stack>
+    <s-admin-block
+      heading="Componentes del bundle"
+      collapsed-summary={
+        `${components.length} componente${components.length === 1 ? "" : "s"}`
+      }
+    >
+      <s-stack
+        direction="block"
+        gap="base"
+      >
+        {components.length ===
+        0 ? (
+          <s-text>
+            Shopify no informa componentes para este producto.
+          </s-text>
+        ) : (
+          components.map(
+            (
+              component,
+              index,
+            ) => (
+              <s-stack
+                key={
+                  component.id
+                }
+                direction="block"
+                gap="small"
+              >
+                <s-text type="strong">
+                  {index + 1}.{" "}
+                  {
+                    component.title
+                  }
+                </s-text>
+
+                <s-text>
+                  Variantes utilizadas:{" "}
+                  {
+                    component.componentVariantsCount
+                  }
+                </s-text>
+
+                {component.productUrl ? (
+                  <s-link
+                    href={
+                      component.productUrl
+                    }
+                  >
+                    Ver producto componente
+                  </s-link>
+                ) : null}
+
+                {index <
+                components.length -
+                  1 ? (
+                  <s-divider />
+                ) : null}
+              </s-stack>
+            ),
+          )
+        )}
+      </s-stack>
+    </s-admin-block>
   );
-}
-
-function useProduct() {
-  const {data, query} = shopify;
-  const productId = data?.selected[0].id;
-  const [product, setProduct] = useState(null);
-
-  useEffect(() => {
-    query(
-      `#graphql
-      query GetProduct($id: ID!) {
-        product(id: $id) {
-          id
-          title
-          bundleComponents(first: 100) {
-            nodes {
-              componentProduct {
-                id
-                title
-              }
-            }
-          }
-        }
-      }
-      `,
-      {variables: {id: productId}}
-    ).then(({data, errors}) => {
-      if (errors) {
-        console.error(errors);
-      } else {
-        const {bundleComponents, ...product} = data.product;
-        setProduct({
-          ...product,
-          bundleComponents: bundleComponents.nodes.map(({componentProduct}) => ({
-            ...componentProduct
-          }))
-        })
-      }
-    })
-  }, [productId, query]);
-
-  return product;
 }
