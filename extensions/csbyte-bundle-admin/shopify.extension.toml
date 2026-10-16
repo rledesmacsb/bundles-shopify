@@ -12,6 +12,9 @@ uid = "e6441ca5-e498-8521-5511-d7def45412ba394584d5"
 module = "./src/ProductDetailsConfigurationExtension.jsx"
 target = "admin.product-details.configuration.render"
 
+[extensions.targeting.urls]
+edit = "/app/bundles"
+
 [[extensions.targeting]]
 module = "./src/ProductVariantDetailsConfigurationExtension.jsx"
 target = "admin.product-variant-details.configuration.render"
