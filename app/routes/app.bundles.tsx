@@ -56,6 +56,10 @@ import {
   savePcMonitorManualExcludedProductIds,
 } from "../lib/bundle-data.server";
 
+import {
+  createDraftBundleFromCandidate,
+} from "../lib/bundle-create.server";
+
 /* =========================================================
    LOADER
 ========================================================= */
@@ -132,6 +136,63 @@ export const action =
           "",
       );
 
+    /* -----------------------------------------------------
+       CREATE ONE DRAFT
+
+       The browser sends only candidateId.
+       The server rebuilds and validates the candidate before
+       any Shopify mutation is allowed.
+    ----------------------------------------------------- */
+
+    if (
+      intent ===
+      "create_draft"
+    ) {
+      const candidateId =
+        String(
+          formData.get(
+            "candidateId",
+          ) ??
+            "",
+        ).trim();
+
+      if (
+        !candidateId
+      ) {
+        return {
+          success:
+            false,
+
+          message:
+            "No se recibió la propuesta a crear.",
+        };
+      }
+
+      return createDraftBundleFromCandidate(
+        admin,
+        candidateId,
+      );
+    }
+
+    /* -----------------------------------------------------
+       MANUAL BASE-PC EXCLUSION
+    ----------------------------------------------------- */
+
+    if (
+      intent !==
+        "exclude" &&
+      intent !==
+        "include"
+    ) {
+      return {
+        success:
+          false,
+
+        message:
+          "Acción no válida.",
+      };
+    }
+
     const productId =
       String(
         formData.get(
@@ -149,21 +210,6 @@ export const action =
 
         message:
           "No se recibió el producto.",
-      };
-    }
-
-    if (
-      intent !==
-        "exclude" &&
-      intent !==
-        "include"
-    ) {
-      return {
-        success:
-          false,
-
-        message:
-          "Acción no válida.",
       };
     }
 
@@ -1007,7 +1053,7 @@ export default function Bundles() {
             125px
             65px
             120px
-            105px;
+            132px;
           gap: 14px;
           align-items: center;
           padding: 15px 17px;
@@ -1128,6 +1174,12 @@ export default function Bundles() {
           color: #a32828;
         }
 
+        .csb-actions {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+
         .csb-action-button {
           width: 100%;
           min-height: 32px;
@@ -1144,6 +1196,16 @@ export default function Bundles() {
 
         .csb-action-button:hover {
           background: #f5f5f5;
+        }
+
+        .csb-action-button--primary {
+          border-color: #303030;
+          background: #303030;
+          color: #fff;
+        }
+
+        .csb-action-button--primary:hover {
+          background: #1f1f1f;
         }
 
         .csb-action-button:disabled {
@@ -1794,41 +1856,75 @@ export default function Bundles() {
 
                   </div>
 
-                  {/* EXCLUDE */}
+                  {/* ACTIONS */}
 
-                  <div>
+                  <div className="csb-actions">
 
                     {match.status ===
                       "new" && (
-                      <fetcher.Form method="post">
+                      <>
 
-                        <input
-                          type="hidden"
-                          name="intent"
-                          value="exclude"
-                        />
+                        <fetcher.Form method="post">
 
-                        <input
-                          type="hidden"
-                          name="productId"
-                          value={
-                            candidate
-                              .baseProduct
-                              .id
-                          }
-                        />
+                          <input
+                            type="hidden"
+                            name="intent"
+                            value="create_draft"
+                          />
 
-                        <button
-                          className="csb-action-button"
-                          type="submit"
-                          disabled={
-                            working
-                          }
-                        >
-                          Excluir PC
-                        </button>
+                          <input
+                            type="hidden"
+                            name="candidateId"
+                            value={
+                              candidate.id
+                            }
+                          />
 
-                      </fetcher.Form>
+                          <button
+                            className="csb-action-button csb-action-button--primary"
+                            type="submit"
+                            disabled={
+                              working
+                            }
+                          >
+                            {working
+                              ? "Procesando..."
+                              : "Crear borrador"}
+                          </button>
+
+                        </fetcher.Form>
+
+                        <fetcher.Form method="post">
+
+                          <input
+                            type="hidden"
+                            name="intent"
+                            value="exclude"
+                          />
+
+                          <input
+                            type="hidden"
+                            name="productId"
+                            value={
+                              candidate
+                                .baseProduct
+                                .id
+                            }
+                          />
+
+                          <button
+                            className="csb-action-button"
+                            type="submit"
+                            disabled={
+                              working
+                            }
+                          >
+                            Excluir PC
+                          </button>
+
+                        </fetcher.Form>
+
+                      </>
                     )}
 
                   </div>
@@ -2021,7 +2117,7 @@ export default function Bundles() {
           <br />
           <br />
 
-          La creación real sigue desactivada mientras validamos esta migración.
+          La creación individual está habilitada solo para propuestas con estado Nuevo. Cada intento se vuelve a validar en el servidor y el producto se crea en Shopify como Borrador. La creación masiva continúa desactivada.
 
         </div>
 
