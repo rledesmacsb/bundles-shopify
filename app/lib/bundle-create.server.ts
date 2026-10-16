@@ -1,32 +1,42 @@
 import type {
-  BundleCandidate,
-  BundlePriceConfig,
-  ProductNode,
-} from "./bundle-engine";
+  TemplateCatalogProduct,
+} from "./bundle-rule-engine";
+
+import type {
+  TemplateBundleCandidate,
+} from "./bundle-template-engine";
 
 import {
-  calculateBundlePrice,
-  getBundleIdentity,
-} from "./bundle-engine";
+  buildTemplateBundleState,
+  calculateTemplateCandidatePrice,
+} from "./bundle-template-engine";
+
+import {
+  loadBundleTemplateCatalog,
+} from "./bundle-template-catalog.server";
+
+import {
+  loadBundleRuntimeSettings,
+} from "./bundle-runtime-settings.server";
+
+import {
+  BUNDLE_BASE_PRODUCT_ID_KEY,
+  BUNDLE_MANAGED_BY_KEY,
+  BUNDLE_MANAGED_BY_VALUE,
+  BUNDLE_META_NAMESPACE,
+  BUNDLE_TEMPLATE_KEY,
+  loadExistingPcMonitorBundleMatches,
+} from "./bundle-existing.server";
 
 /* =========================================================
    CONSTANTS
 ========================================================= */
 
 const MANAGED_NAMESPACE =
-  "csbyte_bundle";
+  BUNDLE_META_NAMESPACE;
 
 const MANAGED_BY_VALUE =
-  "csbyte-commerce-tools";
-
-const TEMPLATE_VALUE =
-  "pc_monitor";
-
-const PRODUCT_TYPE =
-  "Combo PC y Monitor";
-
-const VENDOR =
-  "CSBYTE";
+  BUNDLE_MANAGED_BY_VALUE;
 
 /* =========================================================
    TYPES
@@ -336,7 +346,7 @@ async function loadComponentDetail(
   admin: AdminClient,
 
   product:
-    ProductNode,
+    TemplateCatalogProduct,
 
   role:
     ComponentRole,
@@ -989,11 +999,96 @@ async function waitForBundleCreation(
 /* =========================================================
    UPDATE PRODUCT
 
-   El bundle queda siempre:
-   - Vendor CSBYTE
-   - Product Type Combo PC y Monitor
-   - DRAFT
+   The generated product always uses the identity configured
+   in the active template and remains DRAFT.
 ========================================================= */
+
+async function forceBundleDraft(
+  admin:
+    AdminClient,
+
+  productId:
+    string,
+) {
+  try {
+    const response =
+      await admin.graphql(
+        `#graphql
+          mutation CsbyteForceBundleDraft(
+            $product: ProductUpdateInput!
+          ) {
+            productUpdate(
+              product: $product
+            ) {
+              product {
+                id
+                status
+              }
+
+              userErrors {
+                field
+                message
+              }
+            }
+          }
+        `,
+        {
+          variables: {
+            product: {
+              id:
+                productId,
+
+              status:
+                "DRAFT",
+            },
+          },
+        },
+      );
+
+    const json =
+      (await response.json()) as {
+        data?: {
+          productUpdate?: {
+            userErrors?: Array<{
+              message:
+                string;
+            }>;
+          };
+        };
+
+        errors?: Array<{
+          message:
+            string;
+        }>;
+      };
+
+    return {
+      errors: [
+        ...getGraphqlErrors(
+          json,
+        ),
+
+        ...(json.data
+          ?.productUpdate
+          ?.userErrors
+          ?.map(
+            (error) =>
+              error.message,
+          ) ?? []),
+      ],
+    };
+  } catch (
+    error
+  ) {
+    return {
+      errors: [
+        error instanceof Error
+          ? error.message
+          : "No fue posible forzar el producto a Borrador.",
+      ],
+    };
+  }
+}
 
 async function updateBundleProduct(
   admin:
@@ -1001,83 +1096,149 @@ async function updateBundleProduct(
 
   productId:
     string,
-) {
-  const response =
-    await admin.graphql(
-      `#graphql
-        mutation CsbyteConfigureBundleProduct(
-          $product: ProductUpdateInput!
-        ) {
-          productUpdate(
-            product: $product
-          ) {
-            product {
-              id
-              vendor
-              productType
-              status
-            }
 
-            userErrors {
-              field
-              message
+  candidate:
+    TemplateBundleCandidate,
+) {
+  try {
+    const response =
+      await admin.graphql(
+        `#graphql
+          mutation CsbyteConfigureBundleProduct(
+            $product: ProductUpdateInput!
+          ) {
+            productUpdate(
+              product: $product
+            ) {
+              product {
+                id
+                title
+                vendor
+                productType
+                status
+              }
+
+              userErrors {
+                field
+                message
+              }
             }
           }
-        }
-      `,
-      {
-        variables: {
-          product: {
-            id:
-              productId,
+        `,
+        {
+          variables: {
+            product: {
+              id:
+                productId,
 
-            vendor:
-              VENDOR,
+              title:
+                candidate
+                  .identity
+                  .title,
 
-            productType:
-              PRODUCT_TYPE,
+              vendor:
+                candidate
+                  .identity
+                  .vendor,
 
-            status:
-              "DRAFT",
+              productType:
+                candidate
+                  .identity
+                  .productType,
+
+              status:
+                "DRAFT",
+            },
           },
         },
-      },
-    );
+      );
 
-  const json =
-    (await response.json()) as {
-      data?: {
-        productUpdate?: {
-          userErrors?: Array<{
-            message:
-              string;
-          }>;
+    const json =
+      (await response.json()) as {
+        data?: {
+          productUpdate?: {
+            userErrors?: Array<{
+              message:
+                string;
+            }>;
+          };
         };
+
+        errors?: Array<{
+          message:
+            string;
+        }>;
       };
 
-      errors?: Array<{
-        message:
-          string;
-      }>;
+    const errors = [
+      ...getGraphqlErrors(
+        json,
+      ),
+
+      ...(json.data
+        ?.productUpdate
+        ?.userErrors
+        ?.map(
+          (error) =>
+            error.message,
+        ) ?? []),
+    ];
+
+    if (
+      errors.length ===
+      0
+    ) {
+      return {
+        errors,
+      };
+    }
+
+    const fallback =
+      await forceBundleDraft(
+        admin,
+        productId,
+      );
+
+    return {
+      errors: [
+        ...errors,
+
+        ...(fallback.errors.length >
+        0
+          ? [
+              `Además falló el intento de dejar el producto en Borrador: ${formatErrors(
+                fallback.errors,
+              )}`,
+            ]
+          : []),
+      ],
     };
+  } catch (
+    error
+  ) {
+    const fallback =
+      await forceBundleDraft(
+        admin,
+        productId,
+      );
 
-  const errors = [
-    ...getGraphqlErrors(
-      json,
-    ),
+    return {
+      errors: [
+        error instanceof Error
+          ? error.message
+          : "No fue posible configurar el producto creado.",
 
-    ...(json.data
-      ?.productUpdate
-      ?.userErrors
-      ?.map(
-        (error) =>
-          error.message,
-      ) ?? []),
-  ];
-
-  return {
-    errors,
-  };
+        ...(fallback.errors.length >
+        0
+          ? [
+              `Además falló el intento de dejar el producto en Borrador: ${formatErrors(
+                fallback.errors,
+              )}`,
+            ]
+          : []),
+      ],
+    };
+  }
 }
 
 /* =========================================================
@@ -1206,6 +1367,9 @@ async function writeBundleMetadata(
   parentProductId:
     string,
 
+  candidate:
+    TemplateBundleCandidate,
+
   components:
     ComponentDetail[],
 
@@ -1257,7 +1421,10 @@ async function writeBundleMetadata(
 
   const snapshot = {
     schemaVersion:
-      1,
+      2,
+
+    templateId:
+      candidate.templateId,
 
     sku,
 
@@ -1308,7 +1475,7 @@ async function writeBundleMetadata(
         MANAGED_NAMESPACE,
 
       key:
-        "managed_by",
+        BUNDLE_MANAGED_BY_KEY,
 
       type:
         "single_line_text_field",
@@ -1325,13 +1492,13 @@ async function writeBundleMetadata(
         MANAGED_NAMESPACE,
 
       key:
-        "template",
+        BUNDLE_TEMPLATE_KEY,
 
       type:
         "single_line_text_field",
 
       value:
-        TEMPLATE_VALUE,
+        candidate.templateId,
     },
 
     {
@@ -1342,7 +1509,7 @@ async function writeBundleMetadata(
         MANAGED_NAMESPACE,
 
       key:
-        "base_product_id",
+        BUNDLE_BASE_PRODUCT_ID_KEY,
 
       type:
         "single_line_text_field",
@@ -1449,6 +1616,9 @@ async function verifyCreatedBundle(
   productId:
     string,
 
+  candidate:
+    TemplateBundleCandidate,
+
   expectedSku:
     string,
 
@@ -1483,16 +1653,37 @@ async function verifyCreatedBundle(
               }
             }
 
+            bundleComponents(
+              first: 10
+            ) {
+              nodes {
+                componentProduct {
+                  id
+                }
+              }
+
+              pageInfo {
+                hasNextPage
+              }
+            }
+
             managedBy: metafield(
-              namespace: "csbyte_bundle"
-              key: "managed_by"
+              namespace: "${MANAGED_NAMESPACE}"
+              key: "${BUNDLE_MANAGED_BY_KEY}"
             ) {
               value
             }
 
             template: metafield(
-              namespace: "csbyte_bundle"
-              key: "template"
+              namespace: "${MANAGED_NAMESPACE}"
+              key: "${BUNDLE_TEMPLATE_KEY}"
+            ) {
+              value
+            }
+
+            baseProductId: metafield(
+              namespace: "${MANAGED_NAMESPACE}"
+              key: "${BUNDLE_BASE_PRODUCT_ID_KEY}"
             ) {
               value
             }
@@ -1544,6 +1735,20 @@ async function verifyCreatedBundle(
                 }>;
               };
 
+              bundleComponents: {
+                nodes: Array<{
+                  componentProduct: {
+                    id:
+                      string;
+                  };
+                }>;
+
+                pageInfo: {
+                  hasNextPage:
+                    boolean;
+                };
+              };
+
               managedBy?:
                 | {
                     value:
@@ -1552,6 +1757,13 @@ async function verifyCreatedBundle(
                 | null;
 
               template?:
+                | {
+                    value:
+                      string;
+                  }
+                | null;
+
+              baseProductId?:
                 | {
                     value:
                       string;
@@ -1599,20 +1811,29 @@ async function verifyCreatedBundle(
     string[] = [];
 
   if (
-    product.vendor !==
-    VENDOR
+    product.title !==
+    candidate.identity.title
   ) {
     verificationErrors.push(
-      `Proveedor esperado: ${VENDOR}.`,
+      "El título final no coincide con la propuesta.",
+    );
+  }
+
+  if (
+    product.vendor !==
+    candidate.identity.vendor
+  ) {
+    verificationErrors.push(
+      `Proveedor esperado: ${candidate.identity.vendor}.`,
     );
   }
 
   if (
     product.productType !==
-    PRODUCT_TYPE
+    candidate.identity.productType
   ) {
     verificationErrors.push(
-      `Tipo de producto esperado: ${PRODUCT_TYPE}.`,
+      `Tipo de producto esperado: ${candidate.identity.productType}.`,
     );
   }
 
@@ -1669,6 +1890,66 @@ async function verifyCreatedBundle(
     );
   }
 
+  const expectedComponentIds =
+    [
+      candidate
+        .baseProduct
+        .id,
+
+      candidate
+        .monitor
+        .id,
+
+      candidate
+        .keyboardMouse
+        .id,
+
+      ...(candidate.wifiAdapter
+        ? [
+            candidate
+              .wifiAdapter
+              .id,
+          ]
+        : []),
+    ];
+
+  const actualComponentIds =
+    product
+      .bundleComponents
+      .nodes
+      .map(
+        (node) =>
+          node
+            .componentProduct
+            .id,
+      );
+
+  if (
+    product
+      .bundleComponents
+      .pageInfo
+      .hasNextPage
+  ) {
+    verificationErrors.push(
+      "El bundle tiene más componentes de los esperados.",
+    );
+  }
+
+  if (
+    actualComponentIds.length !==
+    expectedComponentIds.length ||
+    expectedComponentIds.some(
+      (id) =>
+        !actualComponentIds.includes(
+          id,
+        ),
+    )
+  ) {
+    verificationErrors.push(
+      "Los componentes finales no coinciden exactamente con la propuesta.",
+    );
+  }
+
   if (
     product
       .managedBy
@@ -1684,10 +1965,23 @@ async function verifyCreatedBundle(
     product
       .template
       ?.value !==
-    TEMPLATE_VALUE
+    candidate.templateId
   ) {
     verificationErrors.push(
-      "Falta identificación de plantilla.",
+      "Falta o no coincide la identificación de plantilla.",
+    );
+  }
+
+  if (
+    product
+      .baseProductId
+      ?.value !==
+    candidate
+      .baseProduct
+      .id
+  ) {
+    verificationErrors.push(
+      "Falta o no coincide la identificación del PC base.",
     );
   }
 
@@ -1699,67 +1993,162 @@ async function verifyCreatedBundle(
 
 /* =========================================================
    MAIN
+
+   Rebuilds the current catalog and candidate on the server.
+   The browser sends only candidateId.
 ========================================================= */
 
-export async function createPcMonitorDraftBundle(
+export async function createDraftBundleFromCandidate(
   admin:
     AdminClient,
 
-  candidate:
-    BundleCandidate,
-
-  priceConfig:
-    BundlePriceConfig,
+  candidateId:
+    string,
 ): Promise<CreateDraftBundleResult> {
+  const cleanCandidateId =
+    candidateId.trim();
+
+  if (
+    !cleanCandidateId
+  ) {
+    return {
+      success:
+        false,
+
+      message:
+        "No se recibió la propuesta a crear.",
+    };
+  }
+
   /* -------------------------------------------------------
-     BASIC CANDIDATE VALIDATION
+     1. RELOAD CURRENT CONFIGURATION + CATALOG
   ------------------------------------------------------- */
 
+  const catalog =
+    await loadBundleTemplateCatalog(
+      admin,
+    );
+
   if (
-    candidate.type !==
-    "desktop"
+    catalog.errors.length >
+    0
   ) {
     return {
       success:
         false,
 
       message:
-        "Esta función solo permite crear bundles PC + Monitor.",
+        `No se pudo volver a validar el catálogo: ${formatErrors(
+          catalog.errors,
+        )}`,
     };
   }
 
+  const runtime =
+    await loadBundleRuntimeSettings(
+      admin,
+    );
+
   if (
-    !candidate.monitor
+    runtime.errors.length >
+    0
   ) {
     return {
       success:
         false,
 
       message:
-        "El candidato no tiene monitor.",
+        `No se pudo volver a validar la configuración: ${formatErrors(
+          runtime.errors,
+        )}`,
     };
   }
 
-  const identity =
-    getBundleIdentity(
-      candidate,
+  const state =
+    buildTemplateBundleState(
+      catalog.products,
+      catalog.templates,
+      runtime.componentConfig,
     );
 
-  const price =
-    calculateBundlePrice(
-      candidate,
-      priceConfig,
+  const candidate =
+    state.candidates.find(
+      (item) =>
+        item.id ===
+        cleanCandidateId,
     );
+
+  if (
+    !candidate
+  ) {
+    return {
+      success:
+        false,
+
+      message:
+        "La propuesta ya no es válida. Recarga Bundles y vuelve a revisarla.",
+    };
+  }
+
+  if (
+    !candidate
+      .identity
+      .sku ||
+    candidate
+      .identity
+      .sku ===
+      "SKU pendiente"
+  ) {
+    return {
+      success:
+        false,
+
+      message:
+        "El PC base no tiene SKU. La creación fue bloqueada.",
+    };
+  }
+
+  const normalizedExpectedSku =
+    candidate
+      .identity
+      .sku
+      .trim()
+      .toUpperCase();
+
+  const sameSkuCandidates =
+    state.candidates.filter(
+      (item) =>
+        item
+          .identity
+          .sku
+          .trim()
+          .toUpperCase() ===
+        normalizedExpectedSku,
+    );
+
+  if (
+    sameSkuCandidates.length >
+    1
+  ) {
+    return {
+      success:
+        false,
+
+      message:
+        "Dos o más plantillas están intentando generar el mismo SKU. La creación fue bloqueada.",
+    };
+  }
 
   /* -------------------------------------------------------
-     FRESH COMPONENT VALIDATION
+     2. FRESH COMPONENT VALIDATION
 
-     Sequential deliberately.
+     Sequential deliberately. This runs only after clicking
+     Crear borrador, not during normal page load.
   ------------------------------------------------------- */
 
   const componentRequests: Array<{
     product:
-      ProductNode;
+      TemplateCatalogProduct;
 
     role:
       ComponentRole;
@@ -1835,12 +2224,6 @@ export async function createPcMonitorDraftBundle(
     );
   }
 
-  /* -------------------------------------------------------
-     BASE SKU
-
-     Use fresh variant data.
-  ------------------------------------------------------- */
-
   const baseComponent =
     components.find(
       (component) =>
@@ -1848,29 +2231,117 @@ export async function createPcMonitorDraftBundle(
         "pc",
     );
 
-  const baseSku =
+  const freshBaseSku =
     baseComponent
       ?.variant
       .sku
       ?.trim();
 
   if (
-    !baseSku
+    !freshBaseSku
   ) {
     return {
       success:
         false,
 
       message:
-        "El PC base no tiene SKU. La creación fue bloqueada.",
+        "El PC base ya no tiene SKU. La creación fue bloqueada.",
     };
   }
 
-  const expectedSku =
-    `BND-${baseSku}`;
+  const freshExpectedSku =
+    `${candidate.template.skuPrefix}${freshBaseSku}`;
+
+  if (
+    freshExpectedSku !==
+    candidate.identity.sku
+  ) {
+    return {
+      success:
+        false,
+
+      message:
+        "El SKU del PC cambió desde que se generó la propuesta. Recarga Bundles antes de crearla.",
+    };
+  }
 
   /* -------------------------------------------------------
-     CREATE
+     3. DUPLICATE / SKU CHECK IMMEDIATELY BEFORE MUTATION
+
+     We check only the selected candidate here. The local
+     duplicate check above already protects collisions
+     between active templates.
+  ------------------------------------------------------- */
+
+  const existing =
+    await loadExistingPcMonitorBundleMatches(
+      admin,
+      [
+        candidate,
+      ],
+    );
+
+  if (
+    existing.errors.length >
+    0
+  ) {
+    return {
+      success:
+        false,
+
+      message:
+        `No se pudo comprobar de forma segura si el bundle ya existe: ${formatErrors(
+          existing.errors,
+        )}`,
+    };
+  }
+
+  const match =
+    existing.matches[0];
+
+  if (
+    !match ||
+    match.status !==
+      "new"
+  ) {
+    return {
+      success:
+        false,
+
+      message:
+        match?.message ??
+        "No fue posible confirmar que la propuesta siga disponible.",
+    };
+  }
+
+  /* -------------------------------------------------------
+     4. FINAL COMMERCIAL PRICE
+  ------------------------------------------------------- */
+
+  const price =
+    calculateTemplateCandidatePrice(
+      candidate,
+      runtime.priceConfig,
+    );
+
+  if (
+    !Number.isFinite(
+      price.finalPrice,
+    ) ||
+    price.finalPrice <=
+      0
+  ) {
+    return {
+      success:
+        false,
+
+      message:
+        "El precio calculado del bundle no es válido.",
+    };
+  }
+
+  /* -------------------------------------------------------
+     5. CREATE NATIVE SHOPIFY BUNDLE
   ------------------------------------------------------- */
 
   let creationResult: {
@@ -1885,7 +2356,9 @@ export async function createPcMonitorDraftBundle(
     creationResult =
       await startBundleCreation(
         admin,
-        identity.title,
+        candidate
+          .identity
+          .title,
         components,
       );
   } catch (
@@ -1917,7 +2390,7 @@ export async function createPcMonitorDraftBundle(
   }
 
   /* -------------------------------------------------------
-     WAIT
+     6. WAIT FOR ASYNC PRODUCT OPERATION
   ------------------------------------------------------- */
 
   const operationResult =
@@ -1946,10 +2419,6 @@ export async function createPcMonitorDraftBundle(
   const parent =
     operationResult.product;
 
-  /*
-   * Con nuestra configuración consolidada debe existir
-   * exactamente una variante padre.
-   */
   if (
     parent
       .variants
@@ -1957,6 +2426,12 @@ export async function createPcMonitorDraftBundle(
       .length !==
     1
   ) {
+    const draftFallback =
+      await forceBundleDraft(
+        admin,
+        parent.id,
+      );
+
     return {
       success:
         false,
@@ -1968,7 +2443,14 @@ export async function createPcMonitorDraftBundle(
         parent.id,
 
       message:
-        "Shopify creó el producto, pero generó más de una variante padre. La configuración se detuvo por seguridad. No vuelvas a crearlo.",
+        `Shopify creó el producto, pero generó más de una variante padre. La configuración se detuvo por seguridad.${
+          draftFallback.errors.length >
+          0
+            ? ` Además no fue posible confirmar Borrador: ${formatErrors(
+                draftFallback.errors,
+              )}.`
+            : ""
+        } No vuelvas a crearlo.`,
     };
   }
 
@@ -1978,13 +2460,14 @@ export async function createPcMonitorDraftBundle(
       .nodes[0];
 
   /* -------------------------------------------------------
-     FORCE DRAFT / VENDOR / PRODUCT TYPE
+     7. TEMPLATE IDENTITY + DRAFT
   ------------------------------------------------------- */
 
   const productUpdate =
     await updateBundleProduct(
       admin,
       parent.id,
+      candidate,
     );
 
   if (
@@ -2009,7 +2492,7 @@ export async function createPcMonitorDraftBundle(
   }
 
   /* -------------------------------------------------------
-     PRICE + SKU
+     8. PRICE + SKU
   ------------------------------------------------------- */
 
   const variantUpdate =
@@ -2017,7 +2500,7 @@ export async function createPcMonitorDraftBundle(
       admin,
       parent.id,
       parentVariant.id,
-      expectedSku,
+      freshExpectedSku,
       price.finalPrice,
     );
 
@@ -2043,17 +2526,16 @@ export async function createPcMonitorDraftBundle(
   }
 
   /* -------------------------------------------------------
-     INTERNAL APP METADATA
-
-     Written last intentionally.
+     9. INTERNAL APP METADATA
   ------------------------------------------------------- */
 
   const metadataResult =
     await writeBundleMetadata(
       admin,
       parent.id,
+      candidate,
       components,
-      expectedSku,
+      freshExpectedSku,
       price.finalPrice,
     );
 
@@ -2074,19 +2556,20 @@ export async function createPcMonitorDraftBundle(
       message:
         `El bundle fue creado y configurado, pero no fue posible guardar su identificación interna: ${formatErrors(
           metadataResult.errors,
-        )}. Quedará bloqueado como bundle legado hasta corregirlo.`,
+        )}. No vuelvas a crearlo.`,
     };
   }
 
   /* -------------------------------------------------------
-     VERIFY
+     10. FINAL AUDIT
   ------------------------------------------------------- */
 
   const verification =
     await verifyCreatedBundle(
       admin,
       parent.id,
-      expectedSku,
+      candidate,
+      freshExpectedSku,
       price.finalPrice,
     );
 
@@ -2105,7 +2588,7 @@ export async function createPcMonitorDraftBundle(
         parent.id,
 
       message:
-        `El bundle fue creado, pero la verificación final detectó diferencias: ${formatErrors(
+        `El bundle fue creado como borrador, pero la verificación final detectó diferencias: ${formatErrors(
           verification.errors,
         )}`,
     };
@@ -2119,15 +2602,17 @@ export async function createPcMonitorDraftBundle(
       parent.id,
 
     title:
-      identity.title,
+      candidate
+        .identity
+        .title,
 
     sku:
-      expectedSku,
+      freshExpectedSku,
 
     price:
       price.finalPrice,
 
     message:
-      `Bundle creado correctamente como borrador: ${identity.title}.`,
+      `Bundle creado correctamente como borrador: ${candidate.identity.title}.`,
   };
 }
