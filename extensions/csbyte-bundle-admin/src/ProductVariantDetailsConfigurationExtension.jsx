@@ -1,64 +1,86 @@
 import "@shopify/ui-extensions/preact";
-import {render} from 'preact';
-import {useState, useEffect} from 'preact/hooks';
+import {render} from "preact";
 
 export default async () => {
-  render(<Extension />, document.body);
-}
+  render(
+    <Extension />,
+    document.body,
+  );
+};
 
 function Extension() {
-  const {extension: {target}, i18n} = shopify;
-  const product = useProductVariant();
+  const variant =
+    shopify.data.variant;
+
+  const components =
+    variant
+      ?.productVariantComponents ??
+    [];
+
   return (
-    <s-stack direction="block">
-      <s-text>
-        {i18n.translate('welcome', {target})}
-      </s-text>
-      {product?.bundleComponents.map((component) =>
-        <s-text key={component.id}>{component.title}</s-text>
-      )}
-    </s-stack>
+    <s-admin-block
+      heading="Componentes de la variante"
+      collapsed-summary={
+        `${components.length} componente${components.length === 1 ? "" : "s"}`
+      }
+    >
+      <s-stack
+        direction="block"
+        gap="base"
+      >
+        {components.length ===
+        0 ? (
+          <s-text>
+            Shopify no informa componentes para esta variante.
+          </s-text>
+        ) : (
+          components.map(
+            (
+              component,
+              index,
+            ) => (
+              <s-stack
+                key={
+                  component.id
+                }
+                direction="block"
+                gap="small"
+              >
+                <s-text type="strong">
+                  {index + 1}.{" "}
+                  {
+                    component.displayName
+                  }
+                </s-text>
+
+                <s-text>
+                  SKU:{" "}
+                  {
+                    component.sku ||
+                    "Sin SKU"
+                  }
+                </s-text>
+
+                {component.productVariantUrl ? (
+                  <s-link
+                    href={
+                      component.productVariantUrl
+                    }
+                  >
+                    Ver variante componente
+                  </s-link>
+                ) : null}
+
+                {index <
+                components.length -
+                  1 ? (
+                  <s-divider />
+                ) : null}
+              </s-stack>
+            ),
+          )
+        )}
+      </s-stack>
+    </s-admin-block>
   );
-}
-
-function useProductVariant() {
-  const {data, query} = shopify;
-  const productVariantId = data?.selected[0].id;
-  const [productVariant, setProductVariant] = useState(null);
-
-  useEffect(() => {
-    query(
-      `#graphql
-      query GetProductVariant($id: ID!) {
-        productVariant(id: $id) {
-          id
-          title
-          productVariantComponents(first: 100) {
-            nodes {
-              productVariant {
-                id
-                title
-              }
-            }
-          }
-        }
-      }
-      `,
-      {variables: {id: productVariantId}}
-    ).then(({data, errors}) => {
-      if (errors) {
-        console.error(errors);
-      } else {
-        const {productVariantComponents, ...productVariant} = data.productVariant;
-        setProductVariant({
-          ...productVariant,
-          productVariantComponents: productVariantComponents.nodes.map(({productVariant}) => ({
-            ...productVariant
-          }))
-        })
-      }
-    })
-  }, [productVariantId, query])
-
-  return productVariant;
 }
