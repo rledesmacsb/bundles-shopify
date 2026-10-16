@@ -386,6 +386,16 @@ export default function Bundles() {
       "all",
     );
 
+  const [
+    creatingCandidateId,
+    setCreatingCandidateId,
+  ] =
+    useState<
+      string | null
+    >(
+      null,
+    );
+
   useEffect(() => {
     if (
       fetcher.data?.message
@@ -397,6 +407,19 @@ export default function Bundles() {
   }, [
     fetcher.data,
     shopify,
+  ]);
+
+  useEffect(() => {
+    if (
+      fetcher.state ===
+      "idle"
+    ) {
+      setCreatingCandidateId(
+        null,
+      );
+    }
+  }, [
+    fetcher.state,
   ]);
 
   /* =======================================================
@@ -1864,7 +1887,14 @@ export default function Bundles() {
                       "new" && (
                       <>
 
-                        <fetcher.Form method="post">
+                        <fetcher.Form
+                          method="post"
+                          onSubmit={() =>
+                            setCreatingCandidateId(
+                              candidate.id,
+                            )
+                          }
+                        >
 
                           <input
                             type="hidden"
@@ -1887,7 +1917,9 @@ export default function Bundles() {
                               working
                             }
                           >
-                            {working
+                            {working &&
+                            creatingCandidateId ===
+                              candidate.id
                               ? "Procesando..."
                               : "Crear borrador"}
                           </button>
