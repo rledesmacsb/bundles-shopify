@@ -1135,15 +1135,35 @@ export default function Bundles() {
           line-height: 1.4;
         }
 
-        .csb-template-badge {
-          display: inline-flex;
+        .csb-badge-row {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 5px;
           margin-top: 7px;
+        }
+
+        .csb-template-badge,
+        .csb-wifi-badge {
+          display: inline-flex;
           padding: 3px 7px;
           border-radius: 999px;
-          background: #f1ebff;
-          color: #6842a7;
           font-size: 9.5px;
           font-weight: 650;
+        }
+
+        .csb-template-badge {
+          background: #f1ebff;
+          color: #6842a7;
+        }
+
+        .csb-wifi-badge--yes {
+          background: #eaf8ee;
+          color: #26733e;
+        }
+
+        .csb-wifi-badge--no {
+          background: #fff2d8;
+          color: #835800;
         }
 
         .csb-existing-product {
@@ -1798,12 +1818,32 @@ export default function Bundles() {
                       }
                     </div>
 
-                    <span className="csb-template-badge">
-                      {
-                        candidate
-                          .templateName
-                      }
-                    </span>
+                    <div className="csb-badge-row">
+
+                      <span className="csb-template-badge">
+                        {
+                          candidate
+                            .templateName
+                        }
+                      </span>
+
+                      <span
+                        className={
+                          candidate
+                            .wifiAdapter
+                            ? "csb-wifi-badge csb-wifi-badge--no"
+                            : "csb-wifi-badge csb-wifi-badge--yes"
+                        }
+                      >
+                        {
+                          candidate
+                            .wifiAdapter
+                            ? "Sin Wi-Fi · agrega adaptador"
+                            : "Wi-Fi integrado"
+                        }
+                      </span>
+
+                    </div>
 
                     {match
                       .existingProduct && (
