@@ -13,7 +13,7 @@ module = "./src/ProductDetailsConfigurationExtension.jsx"
 target = "admin.product-details.configuration.render"
 
 [extensions.targeting.urls]
-edit = "/app/bundles"
+edit = "/app/bundles?product_id={product_id}"
 
 [[extensions.targeting]]
 module = "./src/ProductVariantDetailsConfigurationExtension.jsx"
