@@ -794,19 +794,44 @@ export function getTemplateBundleIdentity(
       baseProduct.title,
     );
 
+  const prefix =
+    template.titlePrefix
+      .trim() ||
+    "Combo";
+
+  const normalizedPrefix =
+    normalizeRuleText(
+      prefix,
+    );
+
+  const normalizedSuffix =
+    normalizeRuleText(
+      template.monitorSuffix,
+    );
+
+  /*
+   * Avoid redundant names such as:
+   * "Combo Reacondicionado ... + Monitor ... Reacondicionado".
+   *
+   * If the condition is already expressed in the title
+   * prefix, the same configured suffix is not repeated.
+   */
+  const effectiveMonitorSuffix =
+    normalizedSuffix &&
+    normalizedPrefix.includes(
+      normalizedSuffix,
+    )
+      ? ""
+      : template.monitorSuffix;
+
   const cleanMonitor =
     appendSuffix(
       cleanMonitorTitle(
         monitor.title,
       ),
 
-      template.monitorSuffix,
+      effectiveMonitorSuffix,
     );
-
-  const prefix =
-    template.titlePrefix
-      .trim() ||
-    "Combo";
 
   const baseSku =
     getFirstTemplateVariant(
