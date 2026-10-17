@@ -97,6 +97,10 @@ export type ExistingBundleProduct = {
 
   productType: string;
 
+  publishedAt:
+    | string
+    | null;
+
   sku:
     | string
     | null;
@@ -205,6 +209,10 @@ type BundleShellNode = {
 
   productType: string;
 
+  publishedAt:
+    | string
+    | null;
+
   variants: {
     nodes: Array<{
       id: string;
@@ -263,6 +271,10 @@ type SkuVariantNode = {
     status: string;
 
     productType: string;
+
+    publishedAt:
+      | string
+      | null;
   };
 };
 
@@ -624,6 +636,7 @@ async function fetchExistingBundles(
                   handle
                   status
                   productType
+                  publishedAt
 
                   variants(
                     first: 1
@@ -803,6 +816,9 @@ async function fetchExistingBundles(
 
           productType:
             product.productType,
+
+          publishedAt:
+            product.publishedAt,
 
           sku:
             product
@@ -1130,6 +1146,7 @@ async function searchExactSkuBatch(
                   handle
                   status
                   productType
+                  publishedAt
                 }
               }
             }
@@ -1246,6 +1263,11 @@ async function searchExactSkuBatch(
               .product
               .productType,
 
+          publishedAt:
+            variant
+              .product
+              .publishedAt,
+
           sku:
             variant.sku,
 
@@ -1319,6 +1341,7 @@ async function fetchManagedBundleIdentity(
               handle
               status
               productType
+              publishedAt
 
               variants(
                 first: 1
@@ -1379,6 +1402,10 @@ async function fetchManagedBundleIdentity(
 
                 productType:
                   string;
+
+                publishedAt:
+                  | string
+                  | null;
 
                 variants: {
                   nodes: Array<{
@@ -1471,6 +1498,9 @@ async function fetchManagedBundleIdentity(
 
         productType:
           product.productType,
+
+        publishedAt:
+          product.publishedAt,
 
         sku:
           product
