@@ -286,77 +286,40 @@ export const shouldRevalidate = ({
 };
 
 /* =========================================================
-   FILTER
+   WORKFLOW VIEWS
 ========================================================= */
 
-type BundleFilter =
-  | "all"
-  | "new"
-  | "existing"
-  | "review"
-  | "excluded"
-  | `template:${string}`;
+type BundleView =
+  | "create"
+  | "published"
+  | "unpublished"
+  | "excluded";
 
-/* =========================================================
-   STATUS
-========================================================= */
+type BundleSort =
+  | "stock_desc"
+  | "price_asc"
+  | "savings_desc";
 
-function getStatusLabel(
+type BulkCreationResult = {
+  candidateId: string;
+  success: boolean;
+  partial: boolean;
+  message: string;
+};
+
+const PAGE_SIZE =
+  25;
+
+function isExistingStatus(
   status:
     ExistingBundleLookupStatus,
 ) {
-  switch (
-    status
-  ) {
-    case "new":
-      return "Nuevo";
-
-    case "existing_managed":
-      return "Ya existe";
-
-    case "existing_legacy":
-      return "Existente legado";
-
-    case "sku_conflict":
-      return "Conflicto SKU";
-
-    case "missing_base_sku":
-      return "Falta SKU";
-
-    case "lookup_error":
-      return "Error";
-
-    default:
-      return "Revisar";
-  }
-}
-
-function getStatusClass(
-  status:
-    ExistingBundleLookupStatus,
-) {
-  switch (
-    status
-  ) {
-    case "new":
-      return "csb-status csb-status--new";
-
-    case "existing_managed":
-      return "csb-status csb-status--existing";
-
-    case "existing_legacy":
-      return "csb-status csb-status--legacy";
-
-    case "sku_conflict":
-    case "missing_base_sku":
-      return "csb-status csb-status--warning";
-
-    case "lookup_error":
-      return "csb-status csb-status--error";
-
-    default:
-      return "csb-status";
-  }
+  return (
+    status ===
+      "existing_managed" ||
+    status ===
+      "existing_legacy"
+  );
 }
 
 function isReviewStatus(
@@ -371,6 +334,78 @@ function isReviewStatus(
     status ===
       "lookup_error"
   );
+}
+
+function getWorkflowStatusLabel(
+  status:
+    ExistingBundleLookupStatus,
+
+  publishedAt:
+    | string
+    | null
+    | undefined,
+) {
+  if (
+    status ===
+    "new"
+  ) {
+    return "Por crear";
+  }
+
+  if (
+    isExistingStatus(
+      status,
+    )
+  ) {
+    return publishedAt
+      ? "Publicado"
+      : "Sin publicar";
+  }
+
+  switch (
+    status
+  ) {
+    case "sku_conflict":
+      return "Conflicto SKU";
+
+    case "missing_base_sku":
+      return "Falta SKU";
+
+    case "lookup_error":
+      return "Revisar";
+
+    default:
+      return "Revisar";
+  }
+}
+
+function getWorkflowStatusClass(
+  status:
+    ExistingBundleLookupStatus,
+
+  publishedAt:
+    | string
+    | null
+    | undefined,
+) {
+  if (
+    status ===
+    "new"
+  ) {
+    return "csb-status csb-status--create";
+  }
+
+  if (
+    isExistingStatus(
+      status,
+    )
+  ) {
+    return publishedAt
+      ? "csb-status csb-status--published"
+      : "csb-status csb-status--unpublished";
+  }
+
+  return "csb-status csb-status--warning";
 }
 
 function getShopifyAdminProductHref(
@@ -391,13 +426,6 @@ function getShopifyAdminProductHref(
     ? `shopify:admin/products/${numericId}`
     : "shopify:admin/products";
 }
-
-type BulkCreationResult = {
-  candidateId: string;
-  success: boolean;
-  partial: boolean;
-  message: string;
-};
 
 /* =========================================================
    COMPONENT
@@ -434,13 +462,49 @@ export default function Bundles() {
     );
 
   const [
-    filter,
-    setFilter,
+    view,
+    setView,
   ] =
     useState<
-      BundleFilter
+      BundleView
     >(
+      "create",
+    );
+
+  const [
+    templateFilter,
+    setTemplateFilter,
+  ] =
+    useState(
       "all",
+    );
+
+  const [
+    sortMode,
+    setSortMode,
+  ] =
+    useState<
+      BundleSort
+    >(
+      "stock_desc",
+    );
+
+  const [
+    page,
+    setPage,
+  ] =
+    useState(
+      1,
+    );
+
+  const [
+    detailCandidateId,
+    setDetailCandidateId,
+  ] =
+    useState<
+      string | null
+    >(
+      null,
     );
 
   const [
@@ -531,6 +595,34 @@ export default function Bundles() {
   }, [
     fetcher.state,
   ]);
+
+  useEffect(() => {
+    const handleKeyDown =
+      (
+        event:
+          KeyboardEvent,
+      ) => {
+        if (
+          event.key ===
+          "Escape"
+        ) {
+          setDetailCandidateId(
+            null,
+          );
+        }
+      };
+
+    window.addEventListener(
+      "keydown",
+      handleKeyDown,
+    );
+
+    return () =>
+      window.removeEventListener(
+        "keydown",
+        handleKeyDown,
+      );
+  }, []);
 
   useEffect(() => {
     if (
@@ -683,10 +775,6 @@ export default function Bundles() {
     revalidator,
   ]);
 
-  /* =======================================================
-     GENERIC TEMPLATE ENGINE
-  ======================================================= */
-
   const state =
     useMemo(
       () =>
@@ -723,58 +811,6 @@ export default function Bundles() {
       ],
     );
 
-  /* =======================================================
-     SORT BY FINAL COMMERCIAL PRICE
-  ======================================================= */
-
-  const sortedCandidates =
-    useMemo(
-      () =>
-        [
-          ...state.candidates,
-        ].sort(
-          (
-            a,
-            b,
-          ) => {
-            const priceA =
-              calculateTemplateCandidatePrice(
-                a,
-                data.runtime.priceConfig,
-              ).finalPrice;
-
-            const priceB =
-              calculateTemplateCandidatePrice(
-                b,
-                data.runtime.priceConfig,
-              ).finalPrice;
-
-            if (
-              priceA !==
-              priceB
-            ) {
-              return (
-                priceA -
-                priceB
-              );
-            }
-
-            return a.identity.title.localeCompare(
-              b.identity.title,
-              "es",
-            );
-          },
-        ),
-      [
-        state.candidates,
-        data.runtime.priceConfig,
-      ],
-    );
-
-  /* =======================================================
-     COUNTS
-  ======================================================= */
-
   const newCount =
     data
       .existingBundleMatches
@@ -783,19 +819,6 @@ export default function Bundles() {
         (match) =>
           match.status ===
           "new",
-      )
-      .length;
-
-  const existingCount =
-    data
-      .existingBundleMatches
-      .matches
-      .filter(
-        (match) =>
-          match.status ===
-            "existing_managed" ||
-          match.status ===
-            "existing_legacy",
       )
       .length;
 
@@ -811,10 +834,43 @@ export default function Bundles() {
       )
       .length;
 
-  const reviewCount =
+  const createCount =
+    newCount +
     reviewMatchCount +
     state
       .multiVariantBaseProducts
+      .length;
+
+  const publishedCount =
+    data
+      .existingBundleMatches
+      .matches
+      .filter(
+        (match) =>
+          isExistingStatus(
+            match.status,
+          ) &&
+          Boolean(
+            match
+              .existingProduct
+              ?.publishedAt,
+          ),
+      )
+      .length;
+
+  const unpublishedCount =
+    data
+      .existingBundleMatches
+      .matches
+      .filter(
+        (match) =>
+          isExistingStatus(
+            match.status,
+          ) &&
+          !match
+            .existingProduct
+            ?.publishedAt,
+      )
       .length;
 
   const excludedCount =
@@ -825,20 +881,9 @@ export default function Bundles() {
       .automaticallyExcludedProducts
       .length;
 
-  /* =======================================================
-     VISIBLE CANDIDATES
-  ======================================================= */
-
-  const visibleCandidates =
+  const filteredCandidates =
     useMemo(
       () => {
-        if (
-          filter ===
-          "excluded"
-        ) {
-          return [];
-        }
-
         const query =
           search
             .trim()
@@ -846,178 +891,297 @@ export default function Bundles() {
               "es",
             );
 
-        return sortedCandidates.filter(
-          (candidate) => {
-            const match =
-              matchByCandidateId.get(
-                candidate.id,
-              );
-
-            if (
-              !match
-            ) {
-              return false;
-            }
-
-            if (
-              filter ===
-                "new" &&
-              match.status !==
-                "new"
-            ) {
-              return false;
-            }
-
-            if (
-              filter ===
-                "existing" &&
-              match.status !==
-                "existing_managed" &&
-              match.status !==
-                "existing_legacy"
-            ) {
-              return false;
-            }
-
-            if (
-              filter ===
-                "review" &&
-              !isReviewStatus(
-                match.status,
-              )
-            ) {
-              return false;
-            }
-
-            if (
-              filter.startsWith(
-                "template:",
-              )
-            ) {
-              const templateId =
-                filter.slice(
-                  "template:".length,
+        const candidates =
+          state.candidates.filter(
+            (candidate) => {
+              const match =
+                matchByCandidateId.get(
+                  candidate.id,
                 );
 
               if (
-                candidate.templateId !==
-                templateId
+                !match
               ) {
                 return false;
               }
+
+              if (
+                view ===
+                "create"
+              ) {
+                if (
+                  match.status !==
+                    "new" &&
+                  !isReviewStatus(
+                    match.status,
+                  )
+                ) {
+                  return false;
+                }
+              }
+
+              if (
+                view ===
+                "published"
+              ) {
+                if (
+                  !isExistingStatus(
+                    match.status,
+                  ) ||
+                  !match
+                    .existingProduct
+                    ?.publishedAt
+                ) {
+                  return false;
+                }
+              }
+
+              if (
+                view ===
+                "unpublished"
+              ) {
+                if (
+                  !isExistingStatus(
+                    match.status,
+                  ) ||
+                  match
+                    .existingProduct
+                    ?.publishedAt
+                ) {
+                  return false;
+                }
+              }
+
+              if (
+                view ===
+                "excluded"
+              ) {
+                return false;
+              }
+
+              if (
+                templateFilter !==
+                  "all" &&
+                candidate.templateId !==
+                  templateFilter
+              ) {
+                return false;
+              }
+
+              if (
+                !query
+              ) {
+                return true;
+              }
+
+              const baseSku =
+                getFirstTemplateVariant(
+                  candidate.baseProduct,
+                )?.sku ??
+                "";
+
+              const monitorSku =
+                getFirstTemplateVariant(
+                  candidate.monitor,
+                )?.sku ??
+                "";
+
+              return [
+                candidate
+                  .baseProduct
+                  .title,
+                candidate
+                  .monitor
+                  .title,
+                candidate
+                  .identity
+                  .sku,
+                baseSku,
+                monitorSku,
+              ].some(
+                (value) =>
+                  value
+                    .toLocaleLowerCase(
+                      "es",
+                    )
+                    .includes(
+                      query,
+                    ),
+              );
+            },
+          );
+
+        return [
+          ...candidates,
+        ].sort(
+          (
+            a,
+            b,
+          ) => {
+            const priceA =
+              calculateTemplateCandidatePrice(
+                a,
+                data.runtime.priceConfig,
+              );
+
+            const priceB =
+              calculateTemplateCandidatePrice(
+                b,
+                data.runtime.priceConfig,
+              );
+
+            if (
+              sortMode ===
+              "price_asc"
+            ) {
+              return (
+                priceA.finalPrice -
+                priceB.finalPrice
+              );
             }
 
             if (
-              !query
+              sortMode ===
+              "savings_desc"
             ) {
-              return true;
+              return (
+                priceB.savings -
+                priceA.savings
+              );
             }
 
-            const baseSku =
-              getFirstTemplateVariant(
-                candidate.baseProduct,
-              )?.sku ??
-              "";
+            const stockDifference =
+              getTemplateCandidateStock(
+                b,
+              ) -
+              getTemplateCandidateStock(
+                a,
+              );
 
-            const monitorSku =
-              getFirstTemplateVariant(
-                candidate.monitor,
-              )?.sku ??
-              "";
+            if (
+              stockDifference !==
+              0
+            ) {
+              return stockDifference;
+            }
 
-            return (
-              candidate.identity.title
-                .toLocaleLowerCase(
-                  "es",
-                )
-                .includes(
-                  query,
-                ) ||
-              candidate.identity.sku
-                .toLocaleLowerCase(
-                  "es",
-                )
-                .includes(
-                  query,
-                ) ||
-              candidate.templateName
-                .toLocaleLowerCase(
-                  "es",
-                )
-                .includes(
-                  query,
-                ) ||
-              baseSku
-                .toLocaleLowerCase(
-                  "es",
-                )
-                .includes(
-                  query,
-                ) ||
-              monitorSku
-                .toLocaleLowerCase(
-                  "es",
-                )
-                .includes(
-                  query,
-                )
-            );
+            return a
+              .baseProduct
+              .title
+              .localeCompare(
+                b
+                  .baseProduct
+                  .title,
+                "es",
+              );
           },
         );
       },
       [
-        sortedCandidates,
+        state.candidates,
         matchByCandidateId,
         search,
-        filter,
+        view,
+        templateFilter,
+        sortMode,
+        data.runtime.priceConfig,
       ],
+    );
+
+  useEffect(() => {
+    setPage(
+      1,
+    );
+  }, [
+    search,
+    view,
+    templateFilter,
+    sortMode,
+  ]);
+
+  useEffect(() => {
+    if (
+      !bulkRunning
+    ) {
+      setSelectedCandidateIds(
+        new Set(),
+      );
+    }
+
+    setDetailCandidateId(
+      null,
+    );
+  }, [
+    view,
+    templateFilter,
+    bulkRunning,
+  ]);
+
+  const totalPages =
+    Math.max(
+      1,
+      Math.ceil(
+        filteredCandidates.length /
+        PAGE_SIZE,
+      ),
+    );
+
+  useEffect(() => {
+    if (
+      page >
+      totalPages
+    ) {
+      setPage(
+        totalPages,
+      );
+    }
+  }, [
+    page,
+    totalPages,
+  ]);
+
+  const pagedCandidates =
+    filteredCandidates.slice(
+      (
+        page -
+        1
+      ) *
+        PAGE_SIZE,
+
+      page *
+        PAGE_SIZE,
     );
 
   const visibleNewCandidateIds =
-    useMemo(
-      () =>
-        visibleCandidates
-          .filter(
-            (candidate) =>
-              matchByCandidateId.get(
-                candidate.id,
-              )?.status ===
-              "new",
-          )
-          .map(
-            (candidate) =>
-              candidate.id,
-          ),
-      [
-        visibleCandidates,
-        matchByCandidateId,
-      ],
-    );
+    pagedCandidates
+      .filter(
+        (candidate) =>
+          matchByCandidateId.get(
+            candidate.id,
+          )?.status ===
+          "new",
+      )
+      .map(
+        (candidate) =>
+          candidate.id,
+      );
 
   const selectedNewCandidateIds =
-    useMemo(
-      () =>
-        sortedCandidates
-          .filter(
-            (candidate) =>
-              selectedCandidateIds.has(
-                candidate.id,
-              ) &&
-              matchByCandidateId.get(
-                candidate.id,
-              )?.status ===
-                "new",
-          )
-          .map(
-            (candidate) =>
-              candidate.id,
-          ),
-      [
-        sortedCandidates,
-        selectedCandidateIds,
-        matchByCandidateId,
-      ],
-    );
+    state.candidates
+      .filter(
+        (candidate) =>
+          selectedCandidateIds.has(
+            candidate.id,
+          ) &&
+          matchByCandidateId.get(
+            candidate.id,
+          )?.status ===
+            "new",
+      )
+      .map(
+        (candidate) =>
+          candidate.id,
+      );
 
   const allVisibleNewSelected =
     visibleNewCandidateIds.length >
@@ -1028,6 +1192,136 @@ export default function Bundles() {
           candidateId,
         ),
     );
+
+  const visibleMultiVariant =
+    view ===
+    "create"
+      ? state
+          .multiVariantBaseProducts
+          .filter(
+            (product) => {
+              const query =
+                search
+                  .trim()
+                  .toLocaleLowerCase(
+                    "es",
+                  );
+
+              return (
+                !query ||
+                product
+                  .title
+                  .toLocaleLowerCase(
+                    "es",
+                  )
+                  .includes(
+                    query,
+                  )
+              );
+            },
+          )
+      : [];
+
+  const excludedQuery =
+    search
+      .trim()
+      .toLocaleLowerCase(
+        "es",
+      );
+
+  const visibleManualExcluded =
+    view ===
+    "excluded"
+      ? state
+          .manuallyExcludedProducts
+          .filter(
+            (product) =>
+              !excludedQuery ||
+              product
+                .title
+                .toLocaleLowerCase(
+                  "es",
+                )
+                .includes(
+                  excludedQuery,
+                ) ||
+              (
+                getFirstTemplateVariant(
+                  product,
+                )?.sku ??
+                ""
+              )
+                .toLocaleLowerCase(
+                  "es",
+                )
+                .includes(
+                  excludedQuery,
+                ),
+          )
+      : [];
+
+  const visibleAutomaticExcluded =
+    view ===
+    "excluded"
+      ? state
+          .automaticallyExcludedProducts
+          .filter(
+            (product) =>
+              !excludedQuery ||
+              product
+                .title
+                .toLocaleLowerCase(
+                  "es",
+                )
+                .includes(
+                  excludedQuery,
+                ),
+          )
+      : [];
+
+  const detailCandidate =
+    detailCandidateId
+      ? state.candidates.find(
+          (candidate) =>
+            candidate.id ===
+            detailCandidateId,
+        ) ??
+        null
+      : null;
+
+  const detailMatch =
+    detailCandidate
+      ? matchByCandidateId.get(
+          detailCandidate.id,
+        ) ??
+        null
+      : null;
+
+  const detailPrice =
+    detailCandidate
+      ? calculateTemplateCandidatePrice(
+          detailCandidate,
+          data.runtime.priceConfig,
+        )
+      : null;
+
+  const systemErrors =
+    Array.from(
+      new Set([
+        ...data.catalog.errors,
+
+        ...data.runtime.errors,
+
+        ...data
+          .existingBundleMatches
+          .errors,
+      ]),
+    );
+
+  const working =
+    fetcher.state !==
+      "idle" ||
+    bulkRunning;
 
   const toggleCandidateSelection =
     (
@@ -1081,22 +1375,17 @@ export default function Bundles() {
               current,
             );
 
-          if (
-            allVisibleNewSelected
+          for (
+            const candidateId
+            of visibleNewCandidateIds
           ) {
-            for (
-              const candidateId
-              of visibleNewCandidateIds
+            if (
+              allVisibleNewSelected
             ) {
               next.delete(
                 candidateId,
               );
-            }
-          } else {
-            for (
-              const candidateId
-              of visibleNewCandidateIds
-            ) {
+            } else {
               next.add(
                 candidateId,
               );
@@ -1126,7 +1415,7 @@ export default function Bundles() {
         0
       ) {
         shopify.toast.show(
-          "Selecciona al menos un bundle nuevo.",
+          "Selecciona al menos un bundle por crear.",
         );
 
         return;
@@ -1182,173 +1471,19 @@ export default function Bundles() {
       );
     };
 
-  /* =======================================================
-     REVIEW: MULTI VARIANT
-  ======================================================= */
-
-  const visibleMultiVariant =
-    useMemo(
-      () => {
-        if (
-          filter !==
-            "all" &&
-          filter !==
-            "review"
-        ) {
-          return [];
-        }
-
-        const query =
-          search
-            .trim()
-            .toLocaleLowerCase(
-              "es",
-            );
-
-        return state
-          .multiVariantBaseProducts
-          .filter(
-            (product) =>
-              !query ||
-              product.title
-                .toLocaleLowerCase(
-                  "es",
-                )
-                .includes(
-                  query,
-                ),
-          );
-      },
-      [
-        state
-          .multiVariantBaseProducts,
-        search,
-        filter,
-      ],
-    );
-
-  /* =======================================================
-     EXCLUDED
-  ======================================================= */
-
-  const visibleManualExcluded =
-    useMemo(
-      () => {
-        if (
-          filter !==
-          "excluded"
-        ) {
-          return [];
-        }
-
-        const query =
-          search
-            .trim()
-            .toLocaleLowerCase(
-              "es",
-            );
-
-        return state
-          .manuallyExcludedProducts
-          .filter(
-            (product) => {
-              const sku =
-                getFirstTemplateVariant(
-                  product,
-                )?.sku ??
-                "";
-
-              return (
-                !query ||
-                product.title
-                  .toLocaleLowerCase(
-                    "es",
-                  )
-                  .includes(
-                    query,
-                  ) ||
-                sku
-                  .toLocaleLowerCase(
-                    "es",
-                  )
-                  .includes(
-                    query,
-                  )
-              );
-            },
-          );
-      },
-      [
-        state
-          .manuallyExcludedProducts,
-        search,
-        filter,
-      ],
-    );
-
-  const visibleAutomaticExcluded =
-    useMemo(
-      () => {
-        if (
-          filter !==
-          "excluded"
-        ) {
-          return [];
-        }
-
-        const query =
-          search
-            .trim()
-            .toLocaleLowerCase(
-              "es",
-            );
-
-        return state
-          .automaticallyExcludedProducts
-          .filter(
-            (product) =>
-              !query ||
-              product.title
-                .toLocaleLowerCase(
-                  "es",
-                )
-                .includes(
-                  query,
-                ),
-          );
-      },
-      [
-        state
-          .automaticallyExcludedProducts,
-        search,
-        filter,
-      ],
-    );
-
-  /* =======================================================
-     ERRORS
-  ======================================================= */
-
-  const systemErrors =
-    Array.from(
-      new Set([
-        ...data.catalog.errors,
-
-        ...data.runtime.errors,
-
-        ...data
-          .existingBundleMatches
-          .errors,
-      ]),
-    );
-
-  const working =
-    fetcher.state !==
-      "idle" ||
-    bulkRunning;
+  const resultCount =
+    view ===
+    "excluded"
+      ? visibleManualExcluded.length +
+        visibleAutomaticExcluded.length
+      : filteredCandidates.length +
+        visibleMultiVariant.length;
 
   return (
-    <s-page heading="Bundles" inlineSize="large">
+    <s-page
+      heading="Bundles"
+      inlineSize="large"
+    >
 
       <style>{`
         .csb-page,
@@ -1362,7 +1497,8 @@ export default function Bundles() {
           width: 100%;
           max-width: none;
           margin: 0;
-          padding-bottom: 24px;
+          padding-bottom: 28px;
+          color: #202223;
         }
 
         .csb-hero {
@@ -1388,213 +1524,57 @@ export default function Bundles() {
           font-size: 21px;
           line-height: 1.2;
           font-weight: 720;
-          color: #202223;
         }
 
         .csb-description {
+          max-width: 760px;
           margin: 0;
-          max-width: 720px;
-          color: #616161;
+          color: #69727d;
           font-size: 12px;
           line-height: 1.5;
         }
 
-        .csb-hero__status {
-          display: flex;
-          align-items: baseline;
-          gap: 7px;
-          flex: 0 0 auto;
-          padding: 10px 13px;
-          border: 1px solid #dbe7fb;
-          border-radius: 12px;
-          background: #f5f9ff;
-          color: #52606d;
-          font-size: 10.5px;
-        }
-
-        .csb-hero__status strong {
-          color: #0c62f2;
-          font-size: 18px;
-          line-height: 1;
-        }
-
-        .csb-kpis {
-          display: grid;
-          grid-template-columns:
-            repeat(
-              6,
-              minmax(0, 1fr)
-            );
-          gap: 12px;
-          margin-bottom: 14px;
-        }
-
-        .csb-kpi {
-          position: relative;
-          min-width: 0;
-          min-height: 94px;
-          padding: 16px 17px;
-          overflow: hidden;
-          border: 1px solid #e4e9f0;
-          border-radius: 16px;
-          background:
-            linear-gradient(
-              145deg,
-              #ffffff 0%,
-              #fbfdff 100%
-            );
-          box-shadow:
-            0 1px 2px rgba(31, 33, 36, .04),
-            0 7px 20px rgba(31, 33, 36, .035);
-        }
-
-        .csb-kpi::after {
-          content: "";
-          position: absolute;
-          top: -24px;
-          right: -22px;
-          width: 74px;
-          height: 74px;
-          border-radius: 50%;
-          background: #eef5ff;
-        }
-
-        .csb-kpi__label {
-          position: relative;
-          z-index: 1;
-          margin-bottom: 8px;
-          color: #69727d;
-          font-size: 10.5px;
-          font-weight: 580;
-        }
-
-        .csb-kpi__value {
-          position: relative;
-          z-index: 1;
-          color: #202223;
-          font-size: 26px;
-          line-height: 1;
-          font-weight: 740;
-          letter-spacing: -.025em;
-        }
-
-        .csb-kpi--new {
-          border-color: #cfe9d6;
-          background:
-            linear-gradient(
-              145deg,
-              #ffffff 0%,
-              #f4fbf6 100%
-            );
-        }
-
-        .csb-kpi--new::after {
-          background: #e4f6e9;
-        }
-
-        .csb-kpi--warning {
-          border-color: #f0dcb6;
-          background:
-            linear-gradient(
-              145deg,
-              #ffffff 0%,
-              #fff9ee 100%
-            );
-        }
-
-        .csb-kpi--warning::after {
-          background: #fff0d2;
-        }
-
-        .csb-kpi--excluded {
-          background:
-            linear-gradient(
-              145deg,
-              #ffffff 0%,
-              #f7f8fa 100%
-            );
-        }
-
-        .csb-kpi--excluded::after {
-          background: #eef0f3;
-        }
-
-        .csb-context-grid {
-          display: grid;
-          grid-template-columns:
-            minmax(260px, .9fr)
-            minmax(360px, 1.6fr);
-          gap: 12px;
-          margin-bottom: 16px;
-        }
-
-        .csb-price-status {
-          display: flex;
-          flex-direction: column;
-          justify-content: center;
-          gap: 7px;
-          min-height: 76px;
-          margin: 0;
-          padding: 14px 16px;
-          border: 1px solid #dce7f7;
-          border-radius: 14px;
-          background: #f7faff;
-          color: #69727d;
-          font-size: 10.5px;
-        }
-
-        .csb-price-status strong {
-          color: #202223;
-          font-size: 12px;
-          line-height: 1.45;
-        }
-
-        .csb-template-summary {
+        .csb-hero-meta {
           display: flex;
           align-items: center;
+          gap: 10px;
           flex-wrap: wrap;
-          gap: 8px;
-          min-height: 76px;
-          margin: 0;
-          padding: 12px 14px;
-          border: 1px solid #e4e9f0;
-          border-radius: 14px;
-          background: #fff;
-        }
-
-        .csb-template-summary__item {
-          padding: 8px 10px;
-          border: 1px solid #dfe5ec;
-          border-radius: 10px;
-          background: #fbfcfe;
-          color: #66717d;
+          justify-content: flex-end;
+          color: #69727d;
           font-size: 10.5px;
         }
 
-        .csb-template-summary__item strong {
+        .csb-meta-pill {
+          padding: 7px 10px;
+          border: 1px solid #dfe5ec;
+          border-radius: 9px;
+          background: #fff;
+          white-space: nowrap;
+        }
+
+        .csb-meta-pill strong {
           color: #202223;
+        }
+
+        .csb-error-banner,
+        .csb-warning-banner {
+          margin-bottom: 12px;
+          padding: 12px 14px;
+          border-radius: 12px;
+          font-size: 11px;
+          line-height: 1.5;
         }
 
         .csb-error-banner {
-          margin-bottom: 14px;
-          padding: 13px 15px;
           border: 1px solid #e6b7b7;
-          border-radius: 11px;
           background: #fff5f5;
           color: #8f2525;
-          font-size: 11.5px;
-          line-height: 1.45;
         }
 
         .csb-warning-banner {
-          margin-bottom: 14px;
-          padding: 13px 15px;
-          border: 1px solid #e7cea0;
-          border-radius: 11px;
+          border: 1px solid #eed5a7;
           background: #fffaf2;
           color: #73510c;
-          font-size: 11px;
-          line-height: 1.5;
         }
 
         .csb-warning-banner ul {
@@ -1602,513 +1582,602 @@ export default function Bundles() {
           padding-left: 18px;
         }
 
-        .csb-section-head {
-          display: flex;
-          align-items: end;
-          justify-content: space-between;
-          gap: 16px;
-          margin: 4px 2px 10px;
+        .csb-index {
+          border: 1px solid #dfe5ec;
+          border-radius: 16px;
+          background: #fff;
+          box-shadow:
+            0 1px 2px rgba(31, 33, 36, .035),
+            0 10px 28px rgba(31, 33, 36, .04);
         }
 
-        .csb-section-head h2 {
-          margin: 0 0 3px;
-          color: #202223;
-          font-size: 15px;
-          font-weight: 700;
-        }
-
-        .csb-section-head p {
-          margin: 0;
-          color: #77808a;
-          font-size: 10.5px;
-        }
-
-        .csb-toolbar {
+        .csb-views {
           display: flex;
           align-items: center;
-          justify-content: space-between;
-          gap: 12px;
-          margin-bottom: 10px;
-          padding: 10px;
-          border: 1px solid #e4e9f0;
-          border-radius: 14px;
-          background: #fff;
-          box-shadow: 0 1px 2px rgba(31, 33, 36, .03);
-        }
-
-        .csb-filters {
-          display: flex;
-          flex-wrap: wrap;
           gap: 5px;
+          padding: 12px 14px;
+          border-bottom: 1px solid #edf0f3;
+          overflow-x: auto;
         }
 
-        .csb-filter {
-          min-height: 32px;
+        .csb-view {
+          flex: 0 0 auto;
+          min-height: 34px;
+          padding: 6px 11px;
           border: 1px solid transparent;
           border-radius: 9px;
-          padding: 6px 10px;
           background: transparent;
-          color: #4b5560;
+          color: #53606d;
           font: inherit;
-          font-size: 10.5px;
-          font-weight: 620;
+          font-size: 11px;
+          font-weight: 650;
           cursor: pointer;
-          transition:
-            background .15s ease,
-            border-color .15s ease,
-            color .15s ease;
         }
 
-        .csb-filter:hover {
-          background: #f6f7f9;
+        .csb-view:hover {
+          background: #f6f8fa;
         }
 
-        .csb-filter--active {
-          background: #eef5ff;
+        .csb-view--active {
           border-color: #cfe0fb;
+          background: #eef5ff;
           color: #0c62f2;
         }
 
-        .csb-search {
-          width: clamp(240px, 25vw, 360px);
-          height: 36px;
-          min-height: 36px;
-          padding: 0 12px;
-          border: 1px solid #d4d9df;
-          border-radius: 10px;
+        .csb-controls {
+          display: grid;
+          grid-template-columns:
+            minmax(260px, 1fr)
+            minmax(190px, 260px)
+            minmax(170px, 220px);
+          gap: 10px;
+          padding: 12px 14px;
+          border-bottom: 1px solid #edf0f3;
           background: #fbfcfd;
+        }
+
+        .csb-control {
+          width: 100%;
+          height: 38px;
+          min-width: 0;
+          padding: 0 11px;
+          border: 1px solid #d4d9df;
+          border-radius: 9px;
+          background: #fff;
           color: #202223;
           font: inherit;
           font-size: 11px;
           outline: none;
-          appearance: none;
         }
 
-        .csb-search:focus {
+        .csb-control:focus {
           border-color: #8db5f6;
-          box-shadow: 0 0 0 3px rgba(12, 98, 242, .09);
-          background: #fff;
+          box-shadow: 0 0 0 3px rgba(12, 98, 242, .08);
         }
 
-        .csb-bulk-bar {
+        .csb-selection-bar {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          gap: 12px;
-          margin-bottom: 10px;
-          padding: 11px 12px;
-          border: 1px solid #d8e5f8;
-          border-radius: 14px;
-          background:
-            linear-gradient(
-              90deg,
-              #f7faff 0%,
-              #fbfdff 100%
-            );
+          gap: 14px;
+          padding: 10px 14px;
+          border-bottom: 1px solid #d8e5f8;
+          background: #f5f9ff;
         }
 
-        .csb-bulk-bar__left,
-        .csb-bulk-bar__right {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          flex-wrap: wrap;
-        }
-
-        .csb-bulk-info {
-          color: #616161;
+        .csb-selection-info {
+          color: #53606d;
           font-size: 11px;
         }
 
-        .csb-bulk-button {
+        .csb-selection-info strong {
+          color: #0c62f2;
+        }
+
+        .csb-primary-button,
+        .csb-secondary-button,
+        .csb-link-button {
+          appearance: none;
           min-height: 34px;
           padding: 6px 11px;
-          border: 1px solid #c9c9c9;
           border-radius: 8px;
-          background: #fff;
-          color: #303030;
           font: inherit;
           font-size: 10.5px;
           font-weight: 650;
           cursor: pointer;
         }
 
-        .csb-bulk-button--primary {
-          border-color: #0c62f2;
+        .csb-primary-button {
+          border: 1px solid #0c62f2;
           background: #0c62f2;
           color: #fff;
-          box-shadow: 0 3px 8px rgba(12, 98, 242, .16);
+          box-shadow: 0 3px 8px rgba(12, 98, 242, .14);
         }
 
-        .csb-bulk-button--primary:hover {
-          background: #0a56d5;
+        .csb-primary-button:hover {
           border-color: #0a56d5;
+          background: #0a56d5;
         }
 
-        .csb-bulk-button:disabled {
+        .csb-secondary-button {
+          border: 1px solid #d4d9df;
+          background: #fff;
+          color: #30363d;
+        }
+
+        .csb-link-button {
+          border: 0;
+          background: transparent;
+          color: #0c62f2;
+        }
+
+        .csb-primary-button:disabled,
+        .csb-secondary-button:disabled,
+        .csb-link-button:disabled {
           opacity: .5;
           cursor: default;
         }
 
         .csb-bulk-progress {
-          margin-bottom: 14px;
-          padding: 12px 14px;
-          border: 1px solid #d7caef;
-          border-radius: 11px;
-          background: #faf7ff;
-          color: #5c35d5;
-          font-size: 11px;
-          line-height: 1.5;
+          padding: 10px 14px;
+          border-bottom: 1px solid #d8e5f8;
+          background: #f8fbff;
+          color: #42628d;
+          font-size: 10.5px;
         }
 
-        .csb-product-cell {
-          display: flex;
-          align-items: flex-start;
-          gap: 10px;
-          min-width: 0;
-        }
-
-        .csb-product-select {
-          margin-top: 2px;
-          flex: 0 0 auto;
-        }
-
-        .csb-product-content {
-          min-width: 0;
-        }
-
-        .csb-list-header {
+        .csb-table-header,
+        .csb-table-row {
           display: grid;
           grid-template-columns:
-            minmax(380px, 2.5fr)
-            120px
-            130px
-            72px
-            120px
-            150px;
-          gap: 16px;
+            38px
+            minmax(330px, 2.4fr)
+            118px
+            108px
+            90px
+            125px
+            96px;
+          gap: 14px;
           align-items: center;
-          margin: 0 4px 7px;
-          padding: 0 16px;
-          color: #8a939d;
+        }
+
+        .csb-table-header {
+          position: sticky;
+          top: 0;
+          z-index: 3;
+          min-height: 40px;
+          padding: 0 14px;
+          border-bottom: 1px solid #dfe5ec;
+          background: rgba(255, 255, 255, .98);
+          color: #7b8590;
           font-size: 9px;
-          font-weight: 700;
+          font-weight: 720;
           letter-spacing: .055em;
+          text-transform: uppercase;
+          backdrop-filter: blur(8px);
+        }
+
+        .csb-table-header--right {
+          text-align: right;
+        }
+
+        .csb-table-row {
+          min-height: 72px;
+          padding: 12px 14px;
+          border-bottom: 1px solid #edf0f3;
+          transition: background .12s ease;
+        }
+
+        .csb-table-row:last-child {
+          border-bottom: 0;
+        }
+
+        .csb-table-row:hover {
+          background: #fbfdff;
+        }
+
+        .csb-table-row--selected {
+          background: #f7faff;
+          box-shadow: inset 3px 0 0 #0c62f2;
+        }
+
+        .csb-table-row--warning {
+          background: #fffdf7;
+        }
+
+        .csb-check-cell {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          min-height: 24px;
+        }
+
+        .csb-checkbox {
+          width: 15px;
+          height: 15px;
+          accent-color: #0c62f2;
+          cursor: pointer;
+        }
+
+        .csb-bundle-cell {
+          min-width: 0;
+        }
+
+        .csb-base-title {
+          overflow: hidden;
+          margin-bottom: 3px;
+          color: #202223;
+          font-size: 12.5px;
+          line-height: 1.35;
+          font-weight: 680;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .csb-monitor-title {
+          overflow: hidden;
+          color: #66717d;
+          font-size: 10.5px;
+          line-height: 1.35;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .csb-row-warning {
+          margin-top: 5px;
+          color: #8a5a00;
+          font-size: 9.5px;
+          line-height: 1.35;
+        }
+
+        .csb-number {
+          color: #202223;
+          font-size: 11.5px;
+          font-weight: 650;
+          text-align: right;
+          white-space: nowrap;
+        }
+
+        .csb-saving {
+          color: #26733e;
+          font-size: 11px;
+          font-weight: 650;
+          text-align: right;
+          white-space: nowrap;
+        }
+
+        .csb-muted {
+          color: #8a939d;
+          font-size: 10.5px;
+        }
+
+        .csb-status {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-height: 25px;
+          padding: 4px 8px;
+          border-radius: 999px;
+          font-size: 9.5px;
+          font-weight: 680;
+          white-space: nowrap;
+        }
+
+        .csb-status--create {
+          background: #eef5ff;
+          color: #0c62f2;
+        }
+
+        .csb-status--published {
+          background: #eaf8ee;
+          color: #26733e;
+        }
+
+        .csb-status--unpublished {
+          background: #eef0f3;
+          color: #59636e;
+        }
+
+        .csb-status--warning {
+          background: #fff1d7;
+          color: #835800;
+        }
+
+        .csb-row-action {
+          display: flex;
+          justify-content: flex-end;
+        }
+
+        .csb-row-action button,
+        .csb-row-action a {
+          color: #0c62f2;
+          font-size: 10.5px;
+          font-weight: 620;
+          text-decoration: none;
+        }
+
+        .csb-excluded-row {
+          display: grid;
+          grid-template-columns:
+            38px
+            minmax(330px, 2.4fr)
+            118px
+            108px
+            90px
+            125px
+            96px;
+          gap: 14px;
+          align-items: center;
+          min-height: 68px;
+          padding: 12px 14px;
+          border-bottom: 1px solid #edf0f3;
+        }
+
+        .csb-empty {
+          padding: 52px 18px;
+          color: #69727d;
+          text-align: center;
+          font-size: 12px;
+        }
+
+        .csb-footer {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 14px;
+          min-height: 48px;
+          padding: 8px 14px;
+          border-top: 1px solid #edf0f3;
+          background: #fbfcfd;
+          border-radius: 0 0 16px 16px;
+          color: #69727d;
+          font-size: 10.5px;
+        }
+
+        .csb-pagination {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .csb-pagination button {
+          min-height: 30px;
+          padding: 4px 9px;
+          border: 1px solid #d4d9df;
+          border-radius: 8px;
+          background: #fff;
+          color: #30363d;
+          font: inherit;
+          font-size: 10px;
+          cursor: pointer;
+        }
+
+        .csb-pagination button:disabled {
+          opacity: .45;
+          cursor: default;
+        }
+
+        .csb-drawer-backdrop {
+          position: fixed;
+          inset: 0;
+          z-index: 999;
+          background: rgba(24, 29, 35, .3);
+          backdrop-filter: blur(1px);
+        }
+
+        .csb-drawer {
+          position: fixed;
+          top: 0;
+          right: 0;
+          bottom: 0;
+          z-index: 1000;
+          width: min(460px, 94vw);
+          overflow-y: auto;
+          border-left: 1px solid #dfe5ec;
+          background: #fff;
+          box-shadow: -18px 0 42px rgba(31, 33, 36, .14);
+        }
+
+        .csb-drawer__header {
+          position: sticky;
+          top: 0;
+          z-index: 2;
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 18px;
+          padding: 18px;
+          border-bottom: 1px solid #edf0f3;
+          background: rgba(255, 255, 255, .98);
+          backdrop-filter: blur(8px);
+        }
+
+        .csb-drawer__eyebrow {
+          margin-bottom: 5px;
+          color: #0c62f2;
+          font-size: 9px;
+          font-weight: 740;
+          letter-spacing: .07em;
           text-transform: uppercase;
         }
 
-        .csb-list {
+        .csb-drawer__title {
+          margin: 0;
+          color: #202223;
+          font-size: 16px;
+          line-height: 1.35;
+          font-weight: 720;
+        }
+
+        .csb-close {
+          width: 32px;
+          height: 32px;
+          flex: 0 0 auto;
+          border: 1px solid #dfe5ec;
+          border-radius: 8px;
+          background: #fff;
+          color: #53606d;
+          font-size: 18px;
+          line-height: 1;
+          cursor: pointer;
+        }
+
+        .csb-drawer__body {
+          padding: 18px;
+        }
+
+        .csb-detail-section {
+          margin-bottom: 20px;
+          padding-bottom: 18px;
+          border-bottom: 1px solid #edf0f3;
+        }
+
+        .csb-detail-section:last-child {
+          border-bottom: 0;
+        }
+
+        .csb-detail-heading {
+          margin: 0 0 10px;
+          color: #202223;
+          font-size: 11px;
+          font-weight: 720;
+        }
+
+        .csb-detail-row {
+          display: flex;
+          justify-content: space-between;
+          gap: 16px;
+          margin-bottom: 8px;
+          color: #68737f;
+          font-size: 10.5px;
+          line-height: 1.45;
+        }
+
+        .csb-detail-row:last-child {
+          margin-bottom: 0;
+        }
+
+        .csb-detail-row strong {
+          max-width: 65%;
+          color: #202223;
+          text-align: right;
+          font-weight: 650;
+          overflow-wrap: anywhere;
+        }
+
+        .csb-detail-component {
+          padding: 10px 0;
+          border-bottom: 1px solid #f0f2f4;
+        }
+
+        .csb-detail-component:last-child {
+          border-bottom: 0;
+        }
+
+        .csb-detail-component__role {
+          margin-bottom: 3px;
+          color: #8a939d;
+          font-size: 9px;
+          font-weight: 700;
+          text-transform: uppercase;
+        }
+
+        .csb-detail-component__name {
+          color: #202223;
+          font-size: 11px;
+          line-height: 1.4;
+          font-weight: 620;
+        }
+
+        .csb-detail-actions {
           display: flex;
           flex-direction: column;
           gap: 8px;
         }
 
-        .csb-bundle {
-          display: grid;
-          grid-template-columns:
-            minmax(380px, 2.5fr)
-            120px
-            130px
-            72px
-            120px
-            150px;
-          gap: 16px;
-          align-items: center;
-          padding: 15px 16px;
-          border: 1px solid #e4e9f0;
-          border-radius: 14px;
-          background: #fff;
-          box-shadow: 0 1px 2px rgba(31, 33, 36, .025);
-          transition:
-            border-color .15s ease,
-            box-shadow .15s ease,
-            transform .15s ease;
+        .csb-detail-actions form,
+        .csb-detail-actions button,
+        .csb-detail-actions a {
+          width: 100%;
         }
 
-        .csb-bundle:hover {
-          border-color: #d5dce5;
-          box-shadow: 0 6px 18px rgba(31, 33, 36, .045);
-        }
-
-        .csb-bundle:has(.csb-product-select:checked) {
-          border-color: #a9c8f8;
-          background: #f8fbff;
-          box-shadow: 0 0 0 2px rgba(12, 98, 242, .055);
-        }
-
-        .csb-bundle--review {
-          border-color: #e7cea0;
-          background: #fffdf8;
-        }
-
-        .csb-bundle--legacy {
-          border-color: #d5c8f6;
-          background: #fcfaff;
-        }
-
-        .csb-bundle__title {
-          margin-bottom: 4px;
-          color: #202223;
-          font-size: 12.5px;
-          line-height: 1.4;
-          font-weight: 680;
-        }
-
-        .csb-bundle__sku {
-          color: #616161;
-          font-size: 10px;
-          font-family: monospace;
-        }
-
-        .csb-bundle__message {
-          margin-top: 5px;
-          color: #777;
-          font-size: 10.5px;
-          line-height: 1.4;
-        }
-
-        .csb-badge-row {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 5px;
-          margin-top: 7px;
-        }
-
-        .csb-template-badge,
-        .csb-wifi-badge {
+        .csb-detail-link {
           display: inline-flex;
-          padding: 3px 7px;
-          border-radius: 999px;
-          font-size: 9.5px;
-          font-weight: 650;
-        }
-
-        .csb-template-badge {
-          background: #f1ebff;
-          color: #6842a7;
-        }
-
-        .csb-wifi-badge--yes {
-          background: #eaf8ee;
-          color: #26733e;
-        }
-
-        .csb-wifi-badge--no {
-          background: #fff2d8;
-          color: #835800;
-        }
-
-        .csb-existing-product {
-          margin-top: 5px;
-          color: #6842a7;
-          font-size: 10px;
-        }
-
-        .csb-existing-product__link {
-          color: #6842a7;
+          align-items: center;
+          justify-content: center;
+          min-height: 36px;
+          border: 1px solid #d4d9df;
+          border-radius: 8px;
+          background: #fff;
+          color: #0c62f2;
+          font-size: 10.5px;
           font-weight: 650;
           text-decoration: none;
         }
 
-        .csb-existing-product__link:hover {
-          text-decoration: underline;
-        }
-
-        .csb-value-label {
-          display: block;
-          margin-bottom: 3px;
-          color: #8a8a8a;
-          font-size: 9px;
-          text-transform: uppercase;
-        }
-
-        .csb-component-price {
-          color: #777;
-          font-size: 10.5px;
-          text-decoration: line-through;
-        }
-
-        .csb-final-price {
-          color: #303030;
-          font-size: 12.5px;
-          font-weight: 700;
-        }
-
-        .csb-saving {
-          margin-top: 3px;
-          color: #26733e;
-          font-size: 10px;
-          font-weight: 600;
-        }
-
-        .csb-status {
-          display: inline-flex;
-          justify-content: center;
-          padding: 5px 10px;
-          border-radius: 999px;
-          background: #ededed;
-          color: #555;
-          font-size: 10px;
-          font-weight: 650;
-          white-space: nowrap;
-        }
-
-        .csb-status--new {
-          background: #eaf8ee;
-          color: #26733e;
-        }
-
-        .csb-status--existing {
-          background: #eaf0ff;
-          color: #3850a2;
-        }
-
-        .csb-status--legacy {
-          background: #f1ebff;
-          color: #6842a7;
-        }
-
-        .csb-status--warning {
-          background: #fff2d8;
-          color: #835800;
-        }
-
-        .csb-status--error {
-          background: #fdeaea;
-          color: #a32828;
-        }
-
-        .csb-actions {
-          display: flex;
-          flex-direction: column;
-          gap: 6px;
-        }
-
-        .csb-action-button {
-          width: 100%;
-          min-height: 32px;
-          padding: 5px 8px;
-          border: 1px solid #c9c9c9;
-          border-radius: 8px;
-          background: #fff;
-          color: #303030;
-          font: inherit;
-          font-size: 10.5px;
-          font-weight: 600;
-          cursor: pointer;
-        }
-
-        .csb-action-button:hover {
-          background: #f5f5f5;
-        }
-
-        .csb-action-button--primary {
-          border-color: #0c62f2;
-          background: #0c62f2;
-          color: #fff;
-        }
-
-        .csb-action-button--primary:hover {
-          border-color: #0a56d5;
-          background: #0a56d5;
-        }
-
-        .csb-action-button:disabled {
-          opacity: .5;
-          cursor: default;
-        }
-
-        .csb-excluded {
-          display: grid;
-          grid-template-columns:
-            minmax(0, 1fr)
-            170px
-            150px;
-          gap: 16px;
-          align-items: center;
-          padding: 15px 17px;
-          border: 1px solid #e3e3e3;
-          border-radius: 12px;
-          background: #fafafa;
-        }
-
-        .csb-notice {
-          margin-top: 16px;
-          padding: 14px;
-          border: 1px solid #e3e3e3;
-          border-radius: 12px;
-          background: #fafafa;
-          color: #616161;
-          font-size: 11.5px;
-          line-height: 1.5;
-        }
-
-        .csb-empty {
-          padding: 35px;
-          border: 1px dashed #c9c9c9;
-          border-radius: 12px;
-          color: #616161;
-          text-align: center;
-          font-size: 12px;
-        }
-
-        @media (max-width: 1280px) {
-          .csb-kpis {
-            grid-template-columns:
-              repeat(
-                3,
-                1fr
-              );
-          }
-
-          .csb-context-grid {
-            grid-template-columns:
-              1fr;
-          }
-
-          .csb-list-header {
+        @media (max-width: 1180px) {
+          .csb-table-header {
             display: none;
           }
 
-          .csb-bundle {
+          .csb-table-row,
+          .csb-excluded-row {
             grid-template-columns:
-              minmax(0, 2fr)
+              34px
+              minmax(0, 1.8fr)
               1fr
               1fr;
           }
+
+          .csb-table-row > :nth-child(5),
+          .csb-table-row > :nth-child(7),
+          .csb-excluded-row > :nth-child(5),
+          .csb-excluded-row > :nth-child(7) {
+            grid-column: auto;
+          }
         }
 
-        @media (max-width: 700px) {
+        @media (max-width: 760px) {
           .csb-hero {
             align-items: stretch;
             flex-direction: column;
           }
 
-          .csb-hero__status {
-            justify-content: space-between;
+          .csb-hero-meta {
+            justify-content: flex-start;
           }
 
-          .csb-kpis {
-            grid-template-columns:
-              1fr
-              1fr;
+          .csb-controls {
+            grid-template-columns: 1fr;
           }
 
-          .csb-toolbar,
-          .csb-price-status,
-          .csb-bulk-bar {
-            flex-direction: column;
+          .csb-selection-bar,
+          .csb-footer {
             align-items: stretch;
+            flex-direction: column;
           }
 
-          .csb-search {
-            width: 100%;
-          }
-
-          .csb-bundle,
-          .csb-excluded {
+          .csb-table-row,
+          .csb-excluded-row {
             grid-template-columns:
-              1fr;
+              28px
+              minmax(0, 1fr);
+            gap: 8px 10px;
+          }
+
+          .csb-table-row > :nth-child(n+3),
+          .csb-excluded-row > :nth-child(n+3) {
+            grid-column: 2;
+            text-align: left;
+          }
+
+          .csb-number,
+          .csb-saving {
+            text-align: left;
+          }
+
+          .csb-row-action {
+            justify-content: flex-start;
           }
         }
       `}</style>
@@ -2120,239 +2189,68 @@ export default function Bundles() {
           <div>
 
             <div className="csb-eyebrow">
-              Generador automático
+              Gestión de catálogo
             </div>
 
             <h2 className="csb-title">
-              Resumen de bundles
+              Bundles
             </h2>
 
             <p className="csb-description">
-              Revisa propuestas, compatibilidad, precio y stock antes de crear los bundles en Shopify.
+              Revisa las propuestas, controla qué bundles ya existen y distingue cuáles están publicados en Tienda online.
             </p>
 
           </div>
 
-          <div className="csb-hero__status">
+          <div className="csb-hero-meta">
 
-            <strong>
-              {newCount}
-            </strong>
+            <span className="csb-meta-pill">
+              Canal:{" "}
+              <strong>
+                Tienda online
+              </strong>
+            </span>
 
-            <span>
-              nuevos por crear
+            <span className="csb-meta-pill">
+              Precio:{" "}
+              <strong>
+                {data.runtime.priceConfig.mode ===
+                "percentage"
+                  ? `${data.runtime.priceConfig.percentage}% sobre el PC`
+                  : data.runtime.priceConfig.mode ===
+                      "fixed"
+                    ? `${formatPrice(
+                        data.runtime.priceConfig.fixedAmount,
+                        data.catalog.currencyCode,
+                      )} sobre el PC`
+                    : "Sin descuento"}
+              </strong>
             </span>
 
           </div>
 
         </div>
 
-        {/* KPIS */}
-
-        <div className="csb-kpis">
-
-          <div className="csb-kpi">
-
-            <div className="csb-kpi__label">
-              PC elegibles
-            </div>
-
-            <div className="csb-kpi__value">
-              {
-                state
-                  .eligibleBaseProducts
-                  .length
-              }
-            </div>
-
-          </div>
-
-          <div className="csb-kpi">
-
-            <div className="csb-kpi__label">
-              Bundles posibles
-            </div>
-
-            <div className="csb-kpi__value">
-              {
-                state
-                  .candidates
-                  .length
-              }
-            </div>
-
-          </div>
-
-          <div className="csb-kpi csb-kpi--new">
-
-            <div className="csb-kpi__label">
-              Nuevos
-            </div>
-
-            <div className="csb-kpi__value">
-              {
-                newCount
-              }
-            </div>
-
-          </div>
-
-          <div className="csb-kpi">
-
-            <div className="csb-kpi__label">
-              Ya existentes
-            </div>
-
-            <div className="csb-kpi__value">
-              {
-                existingCount
-              }
-            </div>
-
-          </div>
-
-          <div
-            className={
-              reviewCount >
-              0
-                ? "csb-kpi csb-kpi--warning"
-                : "csb-kpi"
-            }
-          >
-
-            <div className="csb-kpi__label">
-              Revisar
-            </div>
-
-            <div className="csb-kpi__value">
-              {
-                reviewCount
-              }
-            </div>
-
-          </div>
-
-          <div className="csb-kpi csb-kpi--excluded">
-
-            <div className="csb-kpi__label">
-              Excluidos
-            </div>
-
-            <div className="csb-kpi__value">
-              {
-                excludedCount
-              }
-            </div>
-
-          </div>
-
-        </div>
-
-        <div className="csb-context-grid">
-
-        {/* PRICE */}
-
-        <div className="csb-price-status">
-
-          <span>
-            Precio comercial
-          </span>
-
-          <strong>
-
-            {data.runtime.priceConfig.mode ===
-            "percentage"
-              ? `${data.runtime.priceConfig.percentage}% de descuento sobre el PC`
-              : data.runtime.priceConfig.mode ===
-                  "fixed"
-                ? `${formatPrice(
-                    data.runtime.priceConfig.fixedAmount,
-                    data.catalog.currencyCode,
-                  )} de descuento sobre el PC`
-                : "Sin descuento"}
-
-            {data.runtime.priceConfig
-              .rounding ===
-            "x900"
-              ? " · Termina en $900"
-              : ""}
-
-          </strong>
-
-        </div>
-
-        {/* TEMPLATE SUMMARY */}
-
-        <div className="csb-template-summary">
-
-          {state.summaries
-            .filter(
-              (summary) =>
-                summary.enabled,
-            )
-            .map(
-              (summary) => (
-                <div
-                  className="csb-template-summary__item"
-                  key={
-                    summary.templateId
-                  }
-                >
-                  <strong>
-                    {
-                      summary.templateName
-                    }
-                  </strong>
-
-                  {" · "}
-
-                  {
-                    summary.candidatesCount
-                  }{" "}
-
-                  propuesta(s)
-
-                </div>
-              ),
-            )}
-
-        </div>
-
-        </div>
-
-        {/* API ERRORS */}
-
         {systemErrors.length >
           0 && (
           <div className="csb-error-banner">
-
             <strong>
-              La lectura del generador no pudo completarse correctamente.
+              No fue posible completar toda la lectura de Shopify.
             </strong>
-
-            <br />
-
-            {
-              systemErrors.join(
-                " | ",
-              )
-            }
-
+            {" "}
+            {systemErrors.join(
+              " | ",
+            )}
           </div>
         )}
-
-        {/* TEMPLATE ISSUES */}
 
         {state.issues.length >
           0 && (
           <div className="csb-warning-banner">
-
             <strong>
-              Revisa la configuración de Plantillas:
+              Hay configuraciones que requieren revisión:
             </strong>
-
             <ul>
-
               {state.issues.map(
                 (issue) => (
                   <li key={issue}>
@@ -2360,325 +2258,282 @@ export default function Bundles() {
                   </li>
                 ),
               )}
-
             </ul>
-
           </div>
         )}
 
-        <div className="csb-section-head">
+        <div className="csb-index">
 
-          <div>
+          <div className="csb-views">
 
-            <h2>
-              Propuestas
-            </h2>
-
-            <p>
-              Filtra, compara y selecciona únicamente los bundles que quieras crear.
-            </p>
+            {([
+              [
+                "create",
+                "Por crear",
+                createCount,
+              ],
+              [
+                "published",
+                "Publicados",
+                publishedCount,
+              ],
+              [
+                "unpublished",
+                "Sin publicar",
+                unpublishedCount,
+              ],
+              [
+                "excluded",
+                "Excluidos",
+                excludedCount,
+              ],
+            ] as Array<
+              [
+                BundleView,
+                string,
+                number,
+              ]
+            >).map(
+              (
+                [
+                  value,
+                  label,
+                  count,
+                ],
+              ) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={
+                    view ===
+                    value
+                      ? "csb-view csb-view--active"
+                      : "csb-view"
+                  }
+                  onClick={() =>
+                    setView(
+                      value,
+                    )
+                  }
+                >
+                  {label}{" "}
+                  {count}
+                </button>
+              ),
+            )}
 
           </div>
 
-        </div>
+          <div className="csb-controls">
 
-        {/* TOOLBAR */}
-
-        <div className="csb-toolbar">
-
-          <div className="csb-filters">
-
-            <button
-              type="button"
-              className={
-                filter ===
-                "all"
-                  ? "csb-filter csb-filter--active"
-                  : "csb-filter"
+            <input
+              className="csb-control"
+              type="search"
+              placeholder="Buscar por modelo o SKU..."
+              value={
+                search
               }
-              onClick={() =>
-                setFilter(
-                  "all",
+              onChange={(event) =>
+                setSearch(
+                  event.target.value,
+                )
+              }
+            />
+
+            <select
+              className="csb-control"
+              value={
+                templateFilter
+              }
+              disabled={
+                view ===
+                "excluded"
+              }
+              onChange={(event) =>
+                setTemplateFilter(
+                  event.target.value,
                 )
               }
             >
-              Todos
-            </button>
+              <option value="all">
+                Todos los tipos de bundle
+              </option>
 
-            <button
-              type="button"
-              className={
-                filter ===
-                "new"
-                  ? "csb-filter csb-filter--active"
-                  : "csb-filter"
-              }
-              onClick={() =>
-                setFilter(
-                  "new",
+              {state.summaries
+                .filter(
+                  (summary) =>
+                    summary.enabled,
                 )
-              }
-            >
-              Nuevos ({newCount})
-            </button>
-
-            {state.summaries
-              .filter(
-                (summary) =>
-                  summary.enabled,
-              )
-              .map(
-                (summary) => {
-                  const value =
-                    `template:${summary.templateId}` as BundleFilter;
-
-                  return (
-                    <button
-                      type="button"
+                .map(
+                  (summary) => (
+                    <option
                       key={
                         summary.templateId
                       }
-                      className={
-                        filter ===
-                        value
-                          ? "csb-filter csb-filter--active"
-                          : "csb-filter"
-                      }
-                      onClick={() =>
-                        setFilter(
-                          value,
-                        )
+                      value={
+                        summary.templateId
                       }
                     >
                       {
                         summary.templateName
-                      }{" "}
-                      ({
-                        summary.candidatesCount
-                      })
-                    </button>
-                  );
-                },
-              )}
+                      }
+                    </option>
+                  ),
+                )}
+            </select>
 
-            <button
-              type="button"
-              className={
-                filter ===
-                "existing"
-                  ? "csb-filter csb-filter--active"
-                  : "csb-filter"
+            <select
+              className="csb-control"
+              value={
+                sortMode
               }
-              onClick={() =>
-                setFilter(
-                  "existing",
-                )
-              }
-            >
-              Ya existen ({existingCount})
-            </button>
-
-            <button
-              type="button"
-              className={
-                filter ===
-                "review"
-                  ? "csb-filter csb-filter--active"
-                  : "csb-filter"
-              }
-              onClick={() =>
-                setFilter(
-                  "review",
-                )
-              }
-            >
-              Revisar ({reviewCount})
-            </button>
-
-            <button
-              type="button"
-              className={
-                filter ===
+              disabled={
+                view ===
                 "excluded"
-                  ? "csb-filter csb-filter--active"
-                  : "csb-filter"
               }
-              onClick={() =>
-                setFilter(
-                  "excluded",
+              onChange={(event) =>
+                setSortMode(
+                  event.target
+                    .value as BundleSort,
                 )
               }
             >
-              Excluidos ({excludedCount})
-            </button>
+              <option value="stock_desc">
+                Mayor disponibilidad
+              </option>
+              <option value="price_asc">
+                Menor precio
+              </option>
+              <option value="savings_desc">
+                Mayor ahorro
+              </option>
+            </select>
 
           </div>
 
-          <input
-            className="csb-search"
-            type="search"
-            placeholder="Buscar producto o SKU"
-            value={
-              search
-            }
-            onChange={(event) =>
-              setSearch(
-                event.target.value,
-              )
-            }
-          />
+          {selectedNewCandidateIds.length >
+            0 && (
+            <div className="csb-selection-bar">
 
-        </div>
+              <div className="csb-selection-info">
+                <strong>
+                  {
+                    selectedNewCandidateIds.length
+                  }
+                </strong>
+                {" "}
+                propuesta(s) seleccionada(s)
+              </div>
 
-        {/* BULK CREATION */}
-
-        <div className="csb-bulk-bar">
-
-          <div className="csb-bulk-bar__left">
-
-            <button
-              type="button"
-              className="csb-bulk-button"
-              onClick={
-                toggleVisibleNewSelection
-              }
-              disabled={
-                bulkRunning ||
-                visibleNewCandidateIds.length ===
-                  0
-              }
-            >
-              {
-                allVisibleNewSelected
-                  ? "Quitar selección visible"
-                  : "Seleccionar nuevos visibles"
-              }
-            </button>
-
-            <span className="csb-bulk-info">
-              {
-                selectedNewCandidateIds.length
-              }{" "}
-              seleccionado(s)
-            </span>
-
-          </div>
-
-          <div className="csb-bulk-bar__right">
-
-            <button
-              type="button"
-              className="csb-bulk-button csb-bulk-button--primary"
-              onClick={
-                startBulkCreation
-              }
-              disabled={
-                bulkRunning ||
-                fetcher.state !==
-                  "idle" ||
-                selectedNewCandidateIds.length ===
-                  0
-              }
-            >
-              {
-                bulkRunning
-                  ? "Creando..."
-                  : "Crear seleccionados (" +
-                    selectedNewCandidateIds.length +
-                    ")"
-              }
-            </button>
-
-          </div>
-
-        </div>
-
-        {(bulkRunning ||
-          bulkResults.length >
-            0) && (
-          <div className="csb-bulk-progress">
-
-            {bulkRunning ? (
-              <>
-                Procesando{" "}
-                {
-                  bulkResults.length +
-                  1
-                }{" "}
-                de{" "}
-                {
-                  bulkQueue.length
+              <button
+                type="button"
+                className="csb-primary-button"
+                disabled={
+                  working
                 }
-                . Cada bundle se crea de forma secuencial y se valida nuevamente en el servidor.
-              </>
-            ) : (
-              <>
-                Último proceso:{" "}
-                {
-                  bulkResults.filter(
-                    (item) =>
-                      item.success,
-                  ).length
-                }{" "}
-                creados ·{" "}
-                {
-                  bulkResults.filter(
-                    (item) =>
-                      !item.success &&
-                      !item.partial,
-                  ).length
-                }{" "}
-                omitidos ·{" "}
-                {
-                  bulkResults.filter(
-                    (item) =>
-                      !item.success &&
-                      item.partial,
-                  ).length
-                }{" "}
-                para revisar.
-              </>
-            )}
+                onClick={
+                  startBulkCreation
+                }
+              >
+                {bulkRunning
+                  ? "Creando borradores..."
+                  : `Crear borradores (${selectedNewCandidateIds.length})`}
+              </button>
 
-          </div>
-        )}
-
-        {/* LIST */}
-
-        {visibleCandidates.length >
-          0 && (
-          <div className="csb-list-header">
-
-            <div>
-              Propuesta
             </div>
+          )}
 
-            <div>
-              Individual
+          {(bulkRunning ||
+            bulkResults.length >
+              0) && (
+            <div className="csb-bulk-progress">
+
+              {bulkRunning
+                ? `Procesando ${bulkResults.length + 1} de ${bulkQueue.length}. Cada bundle se valida nuevamente antes de crearse.`
+                : `Último proceso: ${bulkResults.filter((item) => item.success).length} creados · ${bulkResults.filter((item) => !item.success && !item.partial).length} omitidos · ${bulkResults.filter((item) => !item.success && item.partial).length} para revisar.`}
+
             </div>
+          )}
 
-            <div>
-              Bundle
+          {view !==
+            "excluded" && (
+            <div className="csb-table-header">
+
+              <div className="csb-check-cell">
+                {view ===
+                  "create" &&
+                  visibleNewCandidateIds.length >
+                    0 && (
+                  <input
+                    className="csb-checkbox"
+                    type="checkbox"
+                    aria-label="Seleccionar propuestas visibles"
+                    checked={
+                      allVisibleNewSelected
+                    }
+                    onChange={
+                      toggleVisibleNewSelection
+                    }
+                    disabled={
+                      working
+                    }
+                  />
+                )}
+              </div>
+
+              <div>
+                Bundle
+              </div>
+
+              <div className="csb-table-header--right">
+                Precio
+              </div>
+
+              <div className="csb-table-header--right">
+                Ahorro
+              </div>
+
+              <div className="csb-table-header--right">
+                Disponibles
+              </div>
+
+              <div>
+                Estado
+              </div>
+
+              <div />
+
             </div>
+          )}
 
-            <div>
-              Stock
+          {view ===
+            "excluded" && (
+            <div className="csb-table-header">
+
+              <div />
+
+              <div>
+                Producto
+              </div>
+
+              <div />
+
+              <div />
+
+              <div className="csb-table-header--right">
+                Stock
+              </div>
+
+              <div>
+                Estado
+              </div>
+
+              <div />
+
             </div>
+          )}
 
-            <div>
-              Estado
-            </div>
-
-            <div>
-              Acciones
-            </div>
-
-          </div>
-        )}
-
-        <div className="csb-list">
-
-          {visibleCandidates.map(
+          {pagedCandidates.map(
             (candidate) => {
               const match =
                 matchByCandidateId.get(
@@ -2697,313 +2552,146 @@ export default function Bundles() {
                   data.runtime.priceConfig,
                 );
 
-              const needsReview =
-                isReviewStatus(
-                  match.status,
+              const selected =
+                selectedCandidateIds.has(
+                  candidate.id,
                 );
-
-              const isLegacy =
-                match.status ===
-                "existing_legacy";
-
-              let className =
-                "csb-bundle";
-
-              if (
-                needsReview
-              ) {
-                className +=
-                  " csb-bundle--review";
-              }
-
-              if (
-                isLegacy
-              ) {
-                className +=
-                  " csb-bundle--legacy";
-              }
 
               return (
                 <div
-                  className={
-                    className
-                  }
                   key={
                     candidate.id
                   }
+                  className={[
+                    "csb-table-row",
+                    selected
+                      ? "csb-table-row--selected"
+                      : "",
+                    isReviewStatus(
+                      match.status,
+                    )
+                      ? "csb-table-row--warning"
+                      : "",
+                  ]
+                    .filter(
+                      Boolean,
+                    )
+                    .join(
+                      " ",
+                    )}
                 >
 
-                  {/* PRODUCT */}
-
-                  <div className="csb-product-cell">
-
+                  <div className="csb-check-cell">
                     {match.status ===
                       "new" && (
                       <input
-                        className="csb-product-select"
+                        className="csb-checkbox"
                         type="checkbox"
                         aria-label="Seleccionar bundle"
                         checked={
-                          selectedCandidateIds.has(
-                            candidate.id,
-                          )
+                          selected
+                        }
+                        disabled={
+                          working
                         }
                         onChange={() =>
                           toggleCandidateSelection(
                             candidate.id,
                           )
                         }
-                        disabled={
-                          working
-                        }
                       />
                     )}
+                  </div>
 
-                    <div className="csb-product-content">
+                  <div className="csb-bundle-cell">
 
-                    <div className="csb-bundle__title">
+                    <div className="csb-base-title">
                       {
                         candidate
-                          .identity
+                          .baseProduct
                           .title
                       }
                     </div>
 
-                    <div className="csb-bundle__sku">
+                    <div className="csb-monitor-title">
                       {
                         candidate
-                          .identity
-                          .sku
+                          .monitor
+                          .title
                       }
                     </div>
 
-                    <div className="csb-bundle__message">
-                      {
-                        match.message
-                      }
-                    </div>
-
-                    <div className="csb-badge-row">
-
-                      <span className="csb-template-badge">
+                    {isReviewStatus(
+                      match.status,
+                    ) && (
+                      <div className="csb-row-warning">
                         {
-                          candidate
-                            .templateName
+                          match.message
                         }
-                      </span>
-
-                      <span
-                        className={
-                          candidate
-                            .wifiAdapter
-                            ? "csb-wifi-badge csb-wifi-badge--no"
-                            : "csb-wifi-badge csb-wifi-badge--yes"
-                        }
-                      >
-                        {
-                          candidate
-                            .wifiAdapter
-                            ? "Sin Wi-Fi · agrega adaptador"
-                            : "Wi-Fi integrado"
-                        }
-                      </span>
-
-                    </div>
-
-                    {match
-                      .existingProduct && (
-                      <div className="csb-existing-product">
-
-                        Shopify:{" "}
-
-                        <a
-                          className="csb-existing-product__link"
-                          href={
-                            getShopifyAdminProductHref(
-                              match
-                                .existingProduct
-                                .id,
-                            )
-                          }
-                        >
-                          {
-                            match
-                              .existingProduct
-                              .title
-                          }
-                        </a>
-
                       </div>
                     )}
 
-                    </div>
-
                   </div>
 
-                  {/* INDIVIDUAL */}
-
-                  <div>
-
-                    <span className="csb-value-label">
-                      Individual
-                    </span>
-
-                    <div className="csb-component-price">
-                      {formatPrice(
-                        price.componentPrice,
-                        data.catalog.currencyCode,
-                      )}
-                    </div>
-
+                  <div className="csb-number">
+                    {formatPrice(
+                      price.finalPrice,
+                      data.catalog.currencyCode,
+                    )}
                   </div>
 
-                  {/* BUNDLE */}
-
-                  <div>
-
-                    <span className="csb-value-label">
-                      Bundle
-                    </span>
-
-                    <div className="csb-final-price">
-                      {formatPrice(
-                        price.finalPrice,
-                        data.catalog.currencyCode,
-                      )}
-                    </div>
-
+                  <div className="csb-saving">
                     {price.savings >
-                      0 && (
-                      <div className="csb-saving">
-
-                        Ahorra{" "}
-
-                        {formatPrice(
+                      0
+                      ? formatPrice(
                           price.savings,
                           data.catalog.currencyCode,
-                        )}
-
-                      </div>
-                    )}
-
+                        )
+                      : "—"}
                   </div>
 
-                  {/* STOCK */}
-
-                  <div>
-
-                    <span className="csb-value-label">
-                      Stock
-                    </span>
-
+                  <div className="csb-number">
                     {
                       getTemplateCandidateStock(
                         candidate,
                       )
                     }
-
                   </div>
 
-                  {/* STATUS */}
-
                   <div>
-
                     <span
                       className={
-                        getStatusClass(
+                        getWorkflowStatusClass(
                           match.status,
+                          match
+                            .existingProduct
+                            ?.publishedAt,
                         )
                       }
                     >
                       {
-                        getStatusLabel(
+                        getWorkflowStatusLabel(
                           match.status,
+                          match
+                            .existingProduct
+                            ?.publishedAt,
                         )
                       }
                     </span>
-
                   </div>
 
-                  {/* ACTIONS */}
-
-                  <div className="csb-actions">
-
-                    {match.status ===
-                      "new" && (
-                      <>
-
-                        <fetcher.Form
-                          method="post"
-                          onSubmit={() =>
-                            setCreatingCandidateId(
-                              candidate.id,
-                            )
-                          }
-                        >
-
-                          <input
-                            type="hidden"
-                            name="intent"
-                            value="create_draft"
-                          />
-
-                          <input
-                            type="hidden"
-                            name="candidateId"
-                            value={
-                              candidate.id
-                            }
-                          />
-
-                          <button
-                            className="csb-action-button csb-action-button--primary"
-                            type="submit"
-                            disabled={
-                              working
-                            }
-                          >
-                            {working &&
-                            creatingCandidateId ===
-                              candidate.id
-                              ? "Procesando..."
-                              : "Crear borrador"}
-                          </button>
-
-                        </fetcher.Form>
-
-                        <fetcher.Form method="post">
-
-                          <input
-                            type="hidden"
-                            name="intent"
-                            value="exclude"
-                          />
-
-                          <input
-                            type="hidden"
-                            name="productId"
-                            value={
-                              candidate
-                                .baseProduct
-                                .id
-                            }
-                          />
-
-                          <button
-                            className="csb-action-button"
-                            type="submit"
-                            disabled={
-                              working
-                            }
-                          >
-                            Excluir PC
-                          </button>
-
-                        </fetcher.Form>
-
-                      </>
-                    )}
-
+                  <div className="csb-row-action">
+                    <button
+                      type="button"
+                      className="csb-link-button"
+                      onClick={() =>
+                        setDetailCandidateId(
+                          candidate.id,
+                        )
+                      }
+                    >
+                      Ver detalle
+                    </button>
                   </div>
 
                 </div>
@@ -3011,194 +2699,622 @@ export default function Bundles() {
             },
           )}
 
-          {/* MULTI VARIANT */}
-
-          {visibleMultiVariant.map(
-            (product) => (
-              <div
-                className="csb-bundle csb-bundle--review"
-                key={
-                  product.id
-                }
-              >
-
-                <div>
-
-                  <div className="csb-bundle__title">
-                    {
-                      product.title
-                    }
-                  </div>
-
-                  <div className="csb-bundle__message">
-                    Tiene múltiples variantes. La creación automática permanece bloqueada por seguridad.
-                  </div>
-
-                </div>
-
-                <div />
-                <div />
-
-                <div>
-                  {
-                    product.totalInventory
+          {view ===
+            "create" &&
+            visibleMultiVariant.map(
+              (product) => (
+                <div
+                  className="csb-table-row csb-table-row--warning"
+                  key={
+                    product.id
                   }
+                >
+
+                  <div className="csb-check-cell" />
+
+                  <div className="csb-bundle-cell">
+                    <div className="csb-base-title">
+                      {
+                        product.title
+                      }
+                    </div>
+                    <div className="csb-row-warning">
+                      Tiene múltiples variantes. La creación automática permanece bloqueada.
+                    </div>
+                  </div>
+
+                  <div className="csb-muted">
+                    —
+                  </div>
+
+                  <div className="csb-muted">
+                    —
+                  </div>
+
+                  <div className="csb-number">
+                    {
+                      product.totalInventory
+                    }
+                  </div>
+
+                  <div>
+                    <span className="csb-status csb-status--warning">
+                      Varias variantes
+                    </span>
+                  </div>
+
+                  <div />
+
                 </div>
+              ),
+            )}
 
-                <div>
+          {view ===
+            "excluded" &&
+            visibleManualExcluded.map(
+              (product) => (
+                <div
+                  className="csb-excluded-row"
+                  key={
+                    product.id
+                  }
+                >
 
-                  <span className="csb-status csb-status--warning">
-                    Varias variantes
-                  </span>
+                  <div />
+
+                  <div className="csb-bundle-cell">
+                    <div className="csb-base-title">
+                      {
+                        product.title
+                      }
+                    </div>
+                    <div className="csb-monitor-title">
+                      {
+                        getFirstTemplateVariant(
+                          product,
+                        )?.sku ??
+                        "Sin SKU"
+                      }
+                    </div>
+                  </div>
+
+                  <div />
+                  <div />
+
+                  <div className="csb-number">
+                    {
+                      product.totalInventory
+                    }
+                  </div>
+
+                  <div>
+                    <span className="csb-status csb-status--warning">
+                      Excluido manual
+                    </span>
+                  </div>
+
+                  <div className="csb-row-action">
+                    <fetcher.Form method="post">
+                      <input
+                        type="hidden"
+                        name="intent"
+                        value="include"
+                      />
+                      <input
+                        type="hidden"
+                        name="productId"
+                        value={
+                          product.id
+                        }
+                      />
+                      <button
+                        type="submit"
+                        className="csb-link-button"
+                        disabled={
+                          working
+                        }
+                      >
+                        Incluir
+                      </button>
+                    </fetcher.Form>
+                  </div>
 
                 </div>
+              ),
+            )}
 
-                <div />
+          {view ===
+            "excluded" &&
+            visibleAutomaticExcluded.map(
+              (product) => (
+                <div
+                  className="csb-excluded-row"
+                  key={
+                    product.id
+                  }
+                >
 
-              </div>
-            ),
+                  <div />
+
+                  <div className="csb-bundle-cell">
+                    <div className="csb-base-title">
+                      {
+                        product.title
+                      }
+                    </div>
+                    <div className="csb-monitor-title">
+                      Exclusión automática por producto “Arma a tu medida”.
+                    </div>
+                  </div>
+
+                  <div />
+                  <div />
+
+                  <div className="csb-number">
+                    {
+                      product.totalInventory
+                    }
+                  </div>
+
+                  <div>
+                    <span className="csb-status csb-status--unpublished">
+                      Automático
+                    </span>
+                  </div>
+
+                  <div />
+
+                </div>
+              ),
+            )}
+
+          {resultCount ===
+            0 && (
+            <div className="csb-empty">
+              No hay resultados para esta vista.
+            </div>
           )}
 
-          {/* MANUAL EXCLUDED */}
+          <div className="csb-footer">
 
-          {visibleManualExcluded.map(
-            (product) => (
-              <div
-                className="csb-excluded"
-                key={
-                  product.id
-                }
-              >
+            <span>
+              {resultCount} resultado(s)
+              {view ===
+                "create"
+                ? " · Propuestas pendientes de creación"
+                : ""}
+            </span>
 
-                <div>
+            {view !==
+              "excluded" &&
+              filteredCandidates.length >
+                PAGE_SIZE && (
+              <div className="csb-pagination">
 
-                  <div className="csb-bundle__title">
-                    {
-                      product.title
-                    }
-                  </div>
+                <button
+                  type="button"
+                  disabled={
+                    page <=
+                    1
+                  }
+                  onClick={() =>
+                    setPage(
+                      (
+                        current,
+                      ) =>
+                        Math.max(
+                          1,
+                          current -
+                            1,
+                        ),
+                    )
+                  }
+                >
+                  Anterior
+                </button>
 
-                  <div className="csb-bundle__sku">
-                    {
-                      getFirstTemplateVariant(
-                        product,
-                      )?.sku ??
-                      "Sin SKU"
-                    }
-                  </div>
-
-                  <div className="csb-bundle__message">
-                    Exclusión manual. Este PC no participa en ninguna plantilla.
-                  </div>
-
-                </div>
-
-                <span className="csb-status csb-status--warning">
-                  Excluido manual
+                <span>
+                  Página {page} de{" "}
+                  {totalPages}
                 </span>
 
-                <fetcher.Form method="post">
+                <button
+                  type="button"
+                  disabled={
+                    page >=
+                    totalPages
+                  }
+                  onClick={() =>
+                    setPage(
+                      (
+                        current,
+                      ) =>
+                        Math.min(
+                          totalPages,
+                          current +
+                            1,
+                        ),
+                    )
+                  }
+                >
+                  Siguiente
+                </button>
 
-                  <input
-                    type="hidden"
-                    name="intent"
-                    value="include"
-                  />
-
-                  <input
-                    type="hidden"
-                    name="productId"
-                    value={
-                      product.id
-                    }
-                  />
-
-                  <button
-                    className="csb-action-button"
-                    type="submit"
-                    disabled={
-                      working
-                    }
-                  >
-                    Incluir nuevamente
-                  </button>
-
-                </fetcher.Form>
-
-              </div>
-            ),
-          )}
-
-          {/* AUTOMATIC EXCLUDED */}
-
-          {visibleAutomaticExcluded.map(
-            (product) => (
-              <div
-                className="csb-excluded"
-                key={
-                  product.id
-                }
-              >
-
-                <div>
-
-                  <div className="csb-bundle__title">
-                    {
-                      product.title
-                    }
-                  </div>
-
-                  <div className="csb-bundle__message">
-                    Los productos “¡Arma a tu medida!” permanecen excluidos automáticamente durante esta migración.
-                  </div>
-
-                </div>
-
-                <span className="csb-status">
-                  Automático
-                </span>
-
-                <div />
-
-              </div>
-            ),
-          )}
-
-          {/* EMPTY */}
-
-          {visibleCandidates.length ===
-            0 &&
-            visibleMultiVariant.length ===
-              0 &&
-            visibleManualExcluded.length ===
-              0 &&
-            visibleAutomaticExcluded.length ===
-              0 && (
-              <div className="csb-empty">
-                No hay productos para este filtro.
               </div>
             )}
 
-        </div>
-
-        <div className="csb-notice">
-
-          <strong>
-            Generador conectado a Plantillas.
-          </strong>
-
-          {" "}
-
-          Cambiar condiciones, tipos de producto, metacampos, prefijos, sufijos, SKU, proveedor o tipo de producto generado en Plantillas ahora modifica las propuestas de esta pantalla sin editar el motor.
-
-          <br />
-          <br />
-
-          La creación individual está habilitada solo para propuestas con estado Nuevo. Cada intento se vuelve a validar en el servidor y el producto se crea en Shopify como Borrador. La creación masiva continúa desactivada.
+          </div>
 
         </div>
 
       </div>
+
+      {detailCandidate &&
+        detailMatch &&
+        detailPrice && (
+        <>
+
+          <div
+            className="csb-drawer-backdrop"
+            onClick={() =>
+              setDetailCandidateId(
+                null,
+              )
+            }
+          />
+
+          <aside
+            className="csb-drawer"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Detalle del bundle"
+          >
+
+            <div className="csb-drawer__header">
+
+              <div>
+
+                <div className="csb-drawer__eyebrow">
+                  Detalle del bundle
+                </div>
+
+                <h3 className="csb-drawer__title">
+                  {
+                    detailCandidate
+                      .baseProduct
+                      .title
+                  }
+                </h3>
+
+              </div>
+
+              <button
+                className="csb-close"
+                type="button"
+                aria-label="Cerrar detalle"
+                onClick={() =>
+                  setDetailCandidateId(
+                    null,
+                  )
+                }
+              >
+                ×
+              </button>
+
+            </div>
+
+            <div className="csb-drawer__body">
+
+              <div className="csb-detail-section">
+
+                <div className="csb-detail-heading">
+                  Estado
+                </div>
+
+                <div className="csb-detail-row">
+                  <span>
+                    Flujo
+                  </span>
+                  <strong>
+                    {
+                      getWorkflowStatusLabel(
+                        detailMatch.status,
+                        detailMatch
+                          .existingProduct
+                          ?.publishedAt,
+                      )
+                    }
+                  </strong>
+                </div>
+
+                <div className="csb-detail-row">
+                  <span>
+                    Plantilla
+                  </span>
+                  <strong>
+                    {
+                      detailCandidate
+                        .templateName
+                    }
+                  </strong>
+                </div>
+
+                <div className="csb-detail-row">
+                  <span>
+                    SKU generado
+                  </span>
+                  <strong>
+                    {
+                      detailCandidate
+                        .identity
+                        .sku
+                    }
+                  </strong>
+                </div>
+
+                <div className="csb-detail-row">
+                  <span>
+                    Tienda online
+                  </span>
+                  <strong>
+                    {
+                      detailMatch
+                        .existingProduct
+                        ?.publishedAt
+                        ? "Publicado"
+                        : detailMatch
+                              .existingProduct
+                          ? "Sin publicar"
+                          : "Aún no creado"
+                    }
+                  </strong>
+                </div>
+
+              </div>
+
+              <div className="csb-detail-section">
+
+                <div className="csb-detail-heading">
+                  Componentes
+                </div>
+
+                <div className="csb-detail-component">
+                  <div className="csb-detail-component__role">
+                    PC
+                  </div>
+                  <div className="csb-detail-component__name">
+                    {
+                      detailCandidate
+                        .baseProduct
+                        .title
+                    }
+                  </div>
+                </div>
+
+                <div className="csb-detail-component">
+                  <div className="csb-detail-component__role">
+                    Monitor
+                  </div>
+                  <div className="csb-detail-component__name">
+                    {
+                      detailCandidate
+                        .monitor
+                        .title
+                    }
+                  </div>
+                </div>
+
+                <div className="csb-detail-component">
+                  <div className="csb-detail-component__role">
+                    Teclado y mouse
+                  </div>
+                  <div className="csb-detail-component__name">
+                    {
+                      detailCandidate
+                        .keyboardMouse
+                        .title
+                    }
+                  </div>
+                </div>
+
+                <div className="csb-detail-component">
+                  <div className="csb-detail-component__role">
+                    Wi-Fi
+                  </div>
+                  <div className="csb-detail-component__name">
+                    {
+                      detailCandidate
+                        .wifiAdapter
+                        ?.title ??
+                      "Wi-Fi integrado · no requiere adaptador"
+                    }
+                  </div>
+                </div>
+
+              </div>
+
+              <div className="csb-detail-section">
+
+                <div className="csb-detail-heading">
+                  Compatibilidad
+                </div>
+
+                <div className="csb-detail-row">
+                  <span>
+                    Conexión de video
+                  </span>
+                  <strong>
+                    {
+                      detailCandidate
+                        .commonVideoPorts
+                        .join(
+                          ", ",
+                        ) ||
+                      "Sin coincidencia"
+                    }
+                  </strong>
+                </div>
+
+                <div className="csb-detail-row">
+                  <span>
+                    Disponibles
+                  </span>
+                  <strong>
+                    {
+                      getTemplateCandidateStock(
+                        detailCandidate,
+                      )
+                    }
+                  </strong>
+                </div>
+
+              </div>
+
+              <div className="csb-detail-section">
+
+                <div className="csb-detail-heading">
+                  Precio
+                </div>
+
+                <div className="csb-detail-row">
+                  <span>
+                    Suma individual
+                  </span>
+                  <strong>
+                    {formatPrice(
+                      detailPrice.componentPrice,
+                      data.catalog.currencyCode,
+                    )}
+                  </strong>
+                </div>
+
+                <div className="csb-detail-row">
+                  <span>
+                    Ahorro
+                  </span>
+                  <strong>
+                    {formatPrice(
+                      detailPrice.savings,
+                      data.catalog.currencyCode,
+                    )}
+                  </strong>
+                </div>
+
+                <div className="csb-detail-row">
+                  <span>
+                    Precio bundle
+                  </span>
+                  <strong>
+                    {formatPrice(
+                      detailPrice.finalPrice,
+                      data.catalog.currencyCode,
+                    )}
+                  </strong>
+                </div>
+
+              </div>
+
+              <div className="csb-detail-actions">
+
+                {detailMatch.status ===
+                  "new" && (
+                  <fetcher.Form
+                    method="post"
+                    onSubmit={() =>
+                      setCreatingCandidateId(
+                        detailCandidate.id,
+                      )
+                    }
+                  >
+
+                    <input
+                      type="hidden"
+                      name="intent"
+                      value="create_draft"
+                    />
+
+                    <input
+                      type="hidden"
+                      name="candidateId"
+                      value={
+                        detailCandidate.id
+                      }
+                    />
+
+                    <button
+                      className="csb-primary-button"
+                      type="submit"
+                      disabled={
+                        working
+                      }
+                    >
+                      {working &&
+                      creatingCandidateId ===
+                        detailCandidate.id
+                        ? "Creando..."
+                        : "Crear borrador"}
+                    </button>
+
+                  </fetcher.Form>
+                )}
+
+                {detailMatch.status ===
+                  "new" && (
+                  <fetcher.Form method="post">
+
+                    <input
+                      type="hidden"
+                      name="intent"
+                      value="exclude"
+                    />
+
+                    <input
+                      type="hidden"
+                      name="productId"
+                      value={
+                        detailCandidate
+                          .baseProduct
+                          .id
+                      }
+                    />
+
+                    <button
+                      className="csb-secondary-button"
+                      type="submit"
+                      disabled={
+                        working
+                      }
+                    >
+                      Excluir este PC de todas las propuestas
+                    </button>
+
+                  </fetcher.Form>
+                )}
+
+                {detailMatch
+                  .existingProduct && (
+                  <a
+                    className="csb-detail-link"
+                    href={
+                      getShopifyAdminProductHref(
+                        detailMatch
+                          .existingProduct
+                          .id,
+                      )
+                    }
+                  >
+                    Abrir producto en Shopify
+                  </a>
+                )}
+
+              </div>
+
+            </div>
+
+          </aside>
+
+        </>
+      )}
 
     </s-page>
   );
