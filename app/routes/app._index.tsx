@@ -184,26 +184,12 @@ export default function Index() {
         }
 
         .csb-stat {
-          position: relative;
           min-width: 0;
-          min-height: 100px;
-          padding: 17px;
-          overflow: hidden;
-          border: 1px solid #e4e9f0;
-          border-radius: 16px;
-          background: linear-gradient(145deg, #fff 0%, #fbfdff 100%);
-          box-shadow: 0 1px 2px rgba(31,33,36,.04), 0 7px 20px rgba(31,33,36,.035);
-        }
-
-        .csb-stat::after {
-          content: "";
-          position: absolute;
-          top: -25px;
-          right: -22px;
-          width: 76px;
-          height: 76px;
-          border-radius: 50%;
-          background: #eef5ff;
+          min-height: 92px;
+          padding: 16px;
+          border: 1px solid #e1e3e5;
+          border-radius: 12px;
+          background: #fff;
         }
 
         .csb-stat--success {
@@ -238,10 +224,9 @@ export default function Index() {
 
         .csb-card {
           border: 1px solid #e4e9f0;
-          border-radius: 16px;
+          border-radius: 12px;
           background: #fff;
           overflow: hidden;
-          box-shadow: 0 1px 2px rgba(31,33,36,.03), 0 8px 22px rgba(31,33,36,.035);
         }
 
         .csb-card-header {
@@ -328,8 +313,8 @@ export default function Index() {
         }
 
         .csb-button--primary {
-          border-color: #303030;
-          background: #303030;
+          border-color: #0c62f2;
+          background: #0c62f2;
           color: #fff;
         }
 
