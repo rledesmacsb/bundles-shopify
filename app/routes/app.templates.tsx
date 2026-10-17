@@ -789,9 +789,8 @@ export default function Templates() {
         .cst-template {
           overflow: hidden;
           border: 1px solid #e4e9f0;
-          border-radius: 16px;
+          border-radius: 12px;
           background: #fff;
-          box-shadow: 0 1px 2px rgba(31,33,36,.03), 0 8px 22px rgba(31,33,36,.035);
         }
 
         .cst-template__header {
@@ -801,7 +800,7 @@ export default function Templates() {
           gap: 20px;
           padding: 18px 20px;
           border-bottom: 1px solid #ededed;
-          background: #fafafa;
+          background: #fff;
         }
 
         .cst-template__title {
@@ -1170,21 +1169,9 @@ export default function Templates() {
           margin-top: 18px;
           padding: 11px;
           border: 1px solid #e4e9f0;
-          border-radius: 12px;
-          background: rgba(
-            255,
-            255,
-            255,
-            .98
-          );
-          box-shadow:
-            0 4px 20px
-            rgba(
-              0,
-              0,
-              0,
-              .05
-            );
+          border-radius: 10px;
+          background: #fff;
+          box-shadow: 0 -2px 8px rgba(31, 33, 36, .04);
         }
 
         .cst-save-status {
