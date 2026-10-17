@@ -141,30 +141,34 @@ export default function Index() {
   }
 
   return (
-    <s-page heading="Home">
+    <s-page heading="Home" inlineSize="large">
 
       <style>{`
         .csb-home {
-          max-width: 1400px;
-          margin: 0 auto;
+          width: 100%;
+          max-width: none;
+          margin: 0;
+          padding-bottom: 24px;
         }
 
         .csb-home-heading {
-          margin-bottom: 20px;
+          margin-bottom: 18px;
+          padding: 4px 2px 0;
         }
 
         .csb-home-title {
           margin: 0 0 5px;
-          color: #303030;
-          font-size: 25px;
+          color: #202223;
+          font-size: 21px;
           line-height: 1.2;
-          font-weight: 700;
+          font-weight: 720;
         }
 
         .csb-home-description {
           margin: 0;
-          color: #616161;
-          font-size: 14px;
+          max-width: 760px;
+          color: #69727d;
+          font-size: 12px;
           line-height: 1.5;
         }
 
@@ -175,20 +179,31 @@ export default function Index() {
               5,
               minmax(0, 1fr)
             );
+          gap: 12px;
           margin-bottom: 18px;
-          border: 1px solid #e3e3e3;
-          border-radius: 14px;
-          background: #fff;
-          overflow: hidden;
         }
 
         .csb-stat {
-          padding: 19px;
-          border-right: 1px solid #ededed;
+          position: relative;
+          min-width: 0;
+          min-height: 100px;
+          padding: 17px;
+          overflow: hidden;
+          border: 1px solid #e4e9f0;
+          border-radius: 16px;
+          background: linear-gradient(145deg, #fff 0%, #fbfdff 100%);
+          box-shadow: 0 1px 2px rgba(31,33,36,.04), 0 7px 20px rgba(31,33,36,.035);
         }
 
-        .csb-stat:last-child {
-          border-right: 0;
+        .csb-stat::after {
+          content: "";
+          position: absolute;
+          top: -25px;
+          right: -22px;
+          width: 76px;
+          height: 76px;
+          border-radius: 50%;
+          background: #eef5ff;
         }
 
         .csb-stat--success {
@@ -222,10 +237,11 @@ export default function Index() {
         }
 
         .csb-card {
-          border: 1px solid #e3e3e3;
-          border-radius: 14px;
+          border: 1px solid #e4e9f0;
+          border-radius: 16px;
           background: #fff;
           overflow: hidden;
+          box-shadow: 0 1px 2px rgba(31,33,36,.03), 0 8px 22px rgba(31,33,36,.035);
         }
 
         .csb-card-header {
