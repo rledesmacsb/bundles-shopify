@@ -433,10 +433,9 @@ export default function Rules() {
           min-width: 0;
           width: 100%;
           border: 1px solid #e4e9f0;
-          border-radius: 16px;
+          border-radius: 12px;
           background: #fff;
           overflow: hidden;
-          box-shadow: 0 1px 2px rgba(31,33,36,.03), 0 8px 22px rgba(31,33,36,.035);
         }
 
         .csr-card__header {
