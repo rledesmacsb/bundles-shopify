@@ -320,26 +320,12 @@ export default function Problems() {
         }
 
         .csb-kpi {
-          position: relative;
           min-width: 0;
-          min-height: 94px;
+          min-height: 90px;
           padding: 16px 17px;
-          overflow: hidden;
-          border: 1px solid #e4e9f0;
-          border-radius: 16px;
-          background: linear-gradient(145deg, #fff 0%, #fbfdff 100%);
-          box-shadow: 0 1px 2px rgba(31,33,36,.04), 0 7px 20px rgba(31,33,36,.035);
-        }
-
-        .csb-kpi::after {
-          content: "";
-          position: absolute;
-          top: -24px;
-          right: -22px;
-          width: 74px;
-          height: 74px;
-          border-radius: 50%;
-          background: #eef5ff;
+          border: 1px solid #e1e3e5;
+          border-radius: 12px;
+          background: #fff;
         }
 
         .csb-kpi__label {
@@ -422,15 +408,14 @@ export default function Problems() {
           align-items: center;
           padding: 16px 18px;
           border: 1px solid #e4e9f0;
-          border-radius: 14px;
+          border-radius: 10px;
           background: #fff;
-          box-shadow: 0 1px 2px rgba(31,33,36,.025);
-          transition: border-color .15s ease, box-shadow .15s ease;
+          transition: border-color .15s ease, background .15s ease;
         }
 
         .csb-product:hover {
-          border-color: #d5dce5;
-          box-shadow: 0 6px 18px rgba(31,33,36,.045);
+          border-color: #c9cccf;
+          background: #fbfbfb;
         }
 
         .csb-product--problem {
