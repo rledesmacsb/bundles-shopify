@@ -277,29 +277,34 @@ export default function Problems() {
   ======================================================= */
 
   return (
-    <s-page heading="Productos con problemas">
+    <s-page heading="Productos con problemas" inlineSize="large">
 
       <style>{`
         .csb-problems {
-          max-width: 1400px;
-          margin: 0 auto;
+          width: 100%;
+          max-width: none;
+          margin: 0;
+          padding-bottom: 24px;
         }
 
         .csb-problems-heading {
           margin-bottom: 18px;
+          padding: 4px 2px 0;
         }
 
         .csb-problems-title {
           margin: 0 0 5px;
           color: #303030;
-          font-size: 24px;
-          font-weight: 700;
+          font-size: 21px;
+          line-height: 1.2;
+          font-weight: 720;
         }
 
         .csb-problems-description {
           margin: 0;
-          color: #616161;
-          font-size: 13px;
+          max-width: 760px;
+          color: #69727d;
+          font-size: 12px;
           line-height: 1.5;
         }
 
@@ -310,20 +315,31 @@ export default function Problems() {
               5,
               minmax(0, 1fr)
             );
+          gap: 12px;
           margin-bottom: 16px;
-          border: 1px solid #e3e3e3;
-          border-radius: 14px;
-          overflow: hidden;
-          background: #fff;
         }
 
         .csb-kpi {
-          padding: 17px;
-          border-right: 1px solid #ededed;
+          position: relative;
+          min-width: 0;
+          min-height: 94px;
+          padding: 16px 17px;
+          overflow: hidden;
+          border: 1px solid #e4e9f0;
+          border-radius: 16px;
+          background: linear-gradient(145deg, #fff 0%, #fbfdff 100%);
+          box-shadow: 0 1px 2px rgba(31,33,36,.04), 0 7px 20px rgba(31,33,36,.035);
         }
 
-        .csb-kpi:last-child {
-          border-right: 0;
+        .csb-kpi::after {
+          content: "";
+          position: absolute;
+          top: -24px;
+          right: -22px;
+          width: 74px;
+          height: 74px;
+          border-radius: 50%;
+          background: #eef5ff;
         }
 
         .csb-kpi__label {
@@ -345,7 +361,7 @@ export default function Problems() {
           gap: 12px;
           margin-bottom: 14px;
           padding: 12px;
-          border: 1px solid #e3e3e3;
+          border: 1px solid #e4e9f0;
           border-radius: 12px;
           background: #fff;
         }
@@ -374,9 +390,9 @@ export default function Problems() {
         }
 
         .csb-filter--active {
-          border-color: #c9bcf5;
-          background: #f5f2ff;
-          color: #5c35d5;
+          border-color: #cfe0fb;
+          background: #eef5ff;
+          color: #0c62f2;
         }
 
         .csb-search {
@@ -405,9 +421,16 @@ export default function Problems() {
           gap: 20px;
           align-items: center;
           padding: 16px 18px;
-          border: 1px solid #e3e3e3;
-          border-radius: 12px;
+          border: 1px solid #e4e9f0;
+          border-radius: 14px;
           background: #fff;
+          box-shadow: 0 1px 2px rgba(31,33,36,.025);
+          transition: border-color .15s ease, box-shadow .15s ease;
+        }
+
+        .csb-product:hover {
+          border-color: #d5dce5;
+          box-shadow: 0 6px 18px rgba(31,33,36,.045);
         }
 
         .csb-product--problem {
