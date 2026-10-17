@@ -884,45 +884,51 @@ export default function Components() {
   }
 
   return (
-    <s-page heading="Componentes">
+    <s-page heading="Componentes" inlineSize="large">
       <style>{`
         .csb-page {
-          max-width: 1350px;
-          margin: 0 auto;
+          width: 100%;
+          max-width: none;
+          margin: 0;
+          padding-bottom: 24px;
         }
 
         .csb-heading {
           display: flex;
           justify-content: space-between;
-          gap: 20px;
-          align-items: flex-start;
+          gap: 24px;
+          align-items: flex-end;
           margin-bottom: 18px;
+          padding: 4px 2px 0;
         }
 
         .csb-title {
-          font-size: 24px;
-          font-weight: 700;
+          font-size: 21px;
+          line-height: 1.2;
+          font-weight: 720;
           margin: 0 0 5px;
         }
 
         .csb-description {
           margin: 0;
-          color: #616161;
-          font-size: 13px;
+          max-width: 720px;
+          color: #69727d;
+          font-size: 12px;
         }
 
         .csb-layout {
           display: grid;
-          grid-template-columns: minmax(0, 1fr) 330px;
-          gap: 18px;
+          grid-template-columns: minmax(0, 1fr) 380px;
+          gap: 16px;
           align-items: start;
         }
 
         .csb-main,
         .csb-preview {
-          border: 1px solid #e3e3e3;
-          border-radius: 14px;
+          border: 1px solid #e4e9f0;
+          border-radius: 16px;
           background: white;
+          box-shadow: 0 1px 2px rgba(31,33,36,.03), 0 8px 22px rgba(31,33,36,.035);
         }
 
         .csb-main {
@@ -930,7 +936,7 @@ export default function Components() {
         }
 
         .csb-group {
-          border: 1px solid #e3e3e3;
+          border: 1px solid #e4e9f0;
           border-radius: 12px;
           overflow: hidden;
           margin-bottom: 14px;
@@ -961,8 +967,8 @@ export default function Components() {
         }
 
         .csb-count {
-          background: #f4f0ff;
-          color: #5c35d5;
+          background: #eef5ff;
+          color: #0c62f2;
           padding: 3px 8px;
           border-radius: 999px;
           font-size: 10.5px;
@@ -972,7 +978,7 @@ export default function Components() {
         .csb-link-button,
         .csb-outline-button {
           appearance: none;
-          border: 1px solid #c9c9c9;
+          border: 1px solid #d4d9df;
           background: white;
           border-radius: 8px;
           padding: 6px 11px;
@@ -984,7 +990,7 @@ export default function Components() {
 
         .csb-link-button {
           border-color: transparent;
-          color: #5c35d5;
+          color: #0c62f2;
         }
 
         .csb-group__footer {
@@ -1007,7 +1013,8 @@ export default function Components() {
         }
 
         .csb-row--selected {
-          background: #fdfcff;
+          background: #f7faff;
+          box-shadow: inset 3px 0 0 #0c62f2;
         }
 
         .csb-row__content {
@@ -1093,7 +1100,7 @@ export default function Components() {
           width: 100%;
           min-height: 37px;
           padding: 7px 9px;
-          border: 1px solid #c9c9c9;
+          border: 1px solid #d4d9df;
           border-radius: 8px;
           margin-bottom: 14px;
           font: inherit;
@@ -1134,7 +1141,7 @@ export default function Components() {
           margin-top: 13px;
           padding: 13px;
           background: #fafafa;
-          border: 1px solid #e3e3e3;
+          border: 1px solid #e4e9f0;
           border-radius: 10px;
         }
 
@@ -1168,8 +1175,8 @@ export default function Components() {
           align-items: center;
           min-height: 36px;
           padding: 7px 13px;
-          background: #303030;
-          border-radius: 8px;
+          background: #0c62f2;
+          border-radius: 9px;
           color: white;
           text-decoration: none;
           font-size: 12px;
