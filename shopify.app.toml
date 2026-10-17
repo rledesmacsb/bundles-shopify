@@ -2,12 +2,12 @@
 
 client_id = "705c91f1bcdd48624488af1266856998"
 name = "csbyte-commerce-tools"
-application_url = "https://example.com"
+application_url = "https://csbyte-commerce-tools-dev.vercel.app"
 embedded = true
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "write_products,write_metaobjects,write_metaobject_definitions,write_products,write_publications"
+scopes = "write_products,write_metaobjects,write_metaobject_definitions,write_publications"
 
 [product.metafields.app.demo_info]
 type = "single_line_text_field"
@@ -19,10 +19,7 @@ description = "Tracks products created by the Shopify app template for developme
 
 [metaobjects.app.example]
 name = "Example"
-description = "An example metaobject definition created by this template"
-
-  [metaobjects.app.example.access]
-  admin = "merchant_read_write"
+description = "An example metaobject definition created by the template"
 
 [metaobjects.app.example.fields.title]
 name = "Title"
@@ -45,8 +42,8 @@ api_version = "2026-10"
   topics = [ "app/scopes_update" ]
 
 [auth]
-redirect_urls = [ "https://example.com/api/auth" ]
+redirect_urls = [ "https://csbyte-commerce-tools-dev.vercel.app/api/auth" ]
 
 [build]
 include_config_on_deploy = true
-automatically_update_urls_on_dev = true
+automatically_update_urls_on_dev = false
