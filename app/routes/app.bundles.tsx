@@ -1348,7 +1348,7 @@ export default function Bundles() {
     bulkRunning;
 
   return (
-    <s-page heading="Bundles">
+    <s-page heading="Bundles" inlineSize="large">
 
       <style>{`
         .csb-page,
@@ -1359,21 +1359,63 @@ export default function Bundles() {
         }
 
         .csb-page {
-          max-width: 1450px;
-          margin: 0 auto;
+          width: 100%;
+          max-width: none;
+          margin: 0;
+          padding-bottom: 24px;
+        }
+
+        .csb-hero {
+          display: flex;
+          align-items: flex-end;
+          justify-content: space-between;
+          gap: 24px;
+          margin-bottom: 18px;
+          padding: 4px 2px 0;
+        }
+
+        .csb-eyebrow {
+          margin-bottom: 5px;
+          color: #0c62f2;
+          font-size: 10px;
+          font-weight: 750;
+          letter-spacing: .08em;
+          text-transform: uppercase;
         }
 
         .csb-title {
           margin: 0 0 5px;
-          font-size: 24px;
-          font-weight: 700;
-          color: #303030;
+          font-size: 21px;
+          line-height: 1.2;
+          font-weight: 720;
+          color: #202223;
         }
 
         .csb-description {
-          margin: 0 0 18px;
+          margin: 0;
+          max-width: 720px;
           color: #616161;
-          font-size: 13px;
+          font-size: 12px;
+          line-height: 1.5;
+        }
+
+        .csb-hero__status {
+          display: flex;
+          align-items: baseline;
+          gap: 7px;
+          flex: 0 0 auto;
+          padding: 10px 13px;
+          border: 1px solid #dbe7fb;
+          border-radius: 12px;
+          background: #f5f9ff;
+          color: #52606d;
+          font-size: 10.5px;
+        }
+
+        .csb-hero__status strong {
+          color: #0c62f2;
+          font-size: 18px;
+          line-height: 1;
         }
 
         .csb-kpis {
@@ -1383,82 +1425,154 @@ export default function Bundles() {
               6,
               minmax(0, 1fr)
             );
-          margin-bottom: 16px;
-          border: 1px solid #e3e3e3;
-          border-radius: 14px;
-          overflow: hidden;
-          background: #fff;
+          gap: 12px;
+          margin-bottom: 14px;
         }
 
         .csb-kpi {
+          position: relative;
           min-width: 0;
-          padding: 17px;
-          border-right: 1px solid #ededed;
+          min-height: 94px;
+          padding: 16px 17px;
+          overflow: hidden;
+          border: 1px solid #e4e9f0;
+          border-radius: 16px;
+          background:
+            linear-gradient(
+              145deg,
+              #ffffff 0%,
+              #fbfdff 100%
+            );
+          box-shadow:
+            0 1px 2px rgba(31, 33, 36, .04),
+            0 7px 20px rgba(31, 33, 36, .035);
         }
 
-        .csb-kpi:last-child {
-          border-right: 0;
+        .csb-kpi::after {
+          content: "";
+          position: absolute;
+          top: -24px;
+          right: -22px;
+          width: 74px;
+          height: 74px;
+          border-radius: 50%;
+          background: #eef5ff;
         }
 
         .csb-kpi__label {
-          margin-bottom: 4px;
-          color: #616161;
-          font-size: 11px;
+          position: relative;
+          z-index: 1;
+          margin-bottom: 8px;
+          color: #69727d;
+          font-size: 10.5px;
+          font-weight: 580;
         }
 
         .csb-kpi__value {
-          color: #303030;
-          font-size: 23px;
-          font-weight: 700;
+          position: relative;
+          z-index: 1;
+          color: #202223;
+          font-size: 26px;
+          line-height: 1;
+          font-weight: 740;
+          letter-spacing: -.025em;
         }
 
         .csb-kpi--new {
-          background: #fbfefb;
+          border-color: #cfe9d6;
+          background:
+            linear-gradient(
+              145deg,
+              #ffffff 0%,
+              #f4fbf6 100%
+            );
+        }
+
+        .csb-kpi--new::after {
+          background: #e4f6e9;
         }
 
         .csb-kpi--warning {
-          background: #fffaf2;
+          border-color: #f0dcb6;
+          background:
+            linear-gradient(
+              145deg,
+              #ffffff 0%,
+              #fff9ee 100%
+            );
+        }
+
+        .csb-kpi--warning::after {
+          background: #fff0d2;
         }
 
         .csb-kpi--excluded {
-          background: #fafafa;
+          background:
+            linear-gradient(
+              145deg,
+              #ffffff 0%,
+              #f7f8fa 100%
+            );
+        }
+
+        .csb-kpi--excluded::after {
+          background: #eef0f3;
+        }
+
+        .csb-context-grid {
+          display: grid;
+          grid-template-columns:
+            minmax(260px, .9fr)
+            minmax(360px, 1.6fr);
+          gap: 12px;
+          margin-bottom: 16px;
         }
 
         .csb-price-status {
           display: flex;
-          justify-content: space-between;
-          gap: 15px;
-          margin-bottom: 14px;
-          padding: 12px 14px;
-          border: 1px solid #e3e3e3;
-          border-radius: 11px;
-          background: #fafafa;
-          color: #616161;
-          font-size: 11px;
+          flex-direction: column;
+          justify-content: center;
+          gap: 7px;
+          min-height: 76px;
+          margin: 0;
+          padding: 14px 16px;
+          border: 1px solid #dce7f7;
+          border-radius: 14px;
+          background: #f7faff;
+          color: #69727d;
+          font-size: 10.5px;
         }
 
         .csb-price-status strong {
-          color: #303030;
+          color: #202223;
+          font-size: 12px;
+          line-height: 1.45;
         }
 
         .csb-template-summary {
           display: flex;
+          align-items: center;
           flex-wrap: wrap;
-          gap: 7px;
-          margin-bottom: 14px;
+          gap: 8px;
+          min-height: 76px;
+          margin: 0;
+          padding: 12px 14px;
+          border: 1px solid #e4e9f0;
+          border-radius: 14px;
+          background: #fff;
         }
 
         .csb-template-summary__item {
-          padding: 7px 10px;
-          border: 1px solid #e2e2e2;
-          border-radius: 9px;
-          background: #fff;
-          color: #555;
+          padding: 8px 10px;
+          border: 1px solid #dfe5ec;
+          border-radius: 10px;
+          background: #fbfcfe;
+          color: #66717d;
           font-size: 10.5px;
         }
 
         .csb-template-summary__item strong {
-          color: #303030;
+          color: #202223;
         }
 
         .csb-error-banner {
@@ -1488,15 +1602,38 @@ export default function Bundles() {
           padding-left: 18px;
         }
 
+        .csb-section-head {
+          display: flex;
+          align-items: end;
+          justify-content: space-between;
+          gap: 16px;
+          margin: 4px 2px 10px;
+        }
+
+        .csb-section-head h2 {
+          margin: 0 0 3px;
+          color: #202223;
+          font-size: 15px;
+          font-weight: 700;
+        }
+
+        .csb-section-head p {
+          margin: 0;
+          color: #77808a;
+          font-size: 10.5px;
+        }
+
         .csb-toolbar {
           display: flex;
+          align-items: center;
           justify-content: space-between;
           gap: 12px;
-          margin-bottom: 14px;
-          padding: 11px;
-          border: 1px solid #e3e3e3;
-          border-radius: 12px;
+          margin-bottom: 10px;
+          padding: 10px;
+          border: 1px solid #e4e9f0;
+          border-radius: 14px;
           background: #fff;
+          box-shadow: 0 1px 2px rgba(31, 33, 36, .03);
         }
 
         .csb-filters {
@@ -1506,31 +1643,51 @@ export default function Bundles() {
         }
 
         .csb-filter {
+          min-height: 32px;
           border: 1px solid transparent;
-          border-radius: 8px;
+          border-radius: 9px;
           padding: 6px 10px;
           background: transparent;
-          color: #303030;
+          color: #4b5560;
           font: inherit;
-          font-size: 11px;
-          font-weight: 600;
+          font-size: 10.5px;
+          font-weight: 620;
           cursor: pointer;
+          transition:
+            background .15s ease,
+            border-color .15s ease,
+            color .15s ease;
+        }
+
+        .csb-filter:hover {
+          background: #f6f7f9;
         }
 
         .csb-filter--active {
-          background: #f4f0ff;
-          border-color: #d0c3fa;
-          color: #5c35d5;
+          background: #eef5ff;
+          border-color: #cfe0fb;
+          color: #0c62f2;
         }
 
         .csb-search {
-          width: 270px;
-          min-height: 35px;
-          padding: 6px 10px;
-          border: 1px solid #c9c9c9;
-          border-radius: 8px;
+          width: clamp(240px, 25vw, 360px);
+          height: 36px;
+          min-height: 36px;
+          padding: 0 12px;
+          border: 1px solid #d4d9df;
+          border-radius: 10px;
+          background: #fbfcfd;
+          color: #202223;
           font: inherit;
-          font-size: 11.5px;
+          font-size: 11px;
+          outline: none;
+          appearance: none;
+        }
+
+        .csb-search:focus {
+          border-color: #8db5f6;
+          box-shadow: 0 0 0 3px rgba(12, 98, 242, .09);
+          background: #fff;
         }
 
         .csb-bulk-bar {
@@ -1538,11 +1695,16 @@ export default function Bundles() {
           align-items: center;
           justify-content: space-between;
           gap: 12px;
-          margin-bottom: 14px;
-          padding: 11px 13px;
-          border: 1px solid #d9d9d9;
-          border-radius: 12px;
-          background: #fafafa;
+          margin-bottom: 10px;
+          padding: 11px 12px;
+          border: 1px solid #d8e5f8;
+          border-radius: 14px;
+          background:
+            linear-gradient(
+              90deg,
+              #f7faff 0%,
+              #fbfdff 100%
+            );
         }
 
         .csb-bulk-bar__left,
@@ -1572,9 +1734,15 @@ export default function Bundles() {
         }
 
         .csb-bulk-button--primary {
-          border-color: #303030;
-          background: #303030;
+          border-color: #0c62f2;
+          background: #0c62f2;
           color: #fff;
+          box-shadow: 0 3px 8px rgba(12, 98, 242, .16);
+        }
+
+        .csb-bulk-button--primary:hover {
+          background: #0a56d5;
+          border-color: #0a56d5;
         }
 
         .csb-bulk-button:disabled {
@@ -1609,27 +1777,63 @@ export default function Bundles() {
           min-width: 0;
         }
 
+        .csb-list-header {
+          display: grid;
+          grid-template-columns:
+            minmax(380px, 2.5fr)
+            120px
+            130px
+            72px
+            120px
+            150px;
+          gap: 16px;
+          align-items: center;
+          margin: 0 4px 7px;
+          padding: 0 16px;
+          color: #8a939d;
+          font-size: 9px;
+          font-weight: 700;
+          letter-spacing: .055em;
+          text-transform: uppercase;
+        }
+
         .csb-list {
           display: flex;
           flex-direction: column;
-          gap: 9px;
+          gap: 8px;
         }
 
         .csb-bundle {
           display: grid;
           grid-template-columns:
-            minmax(0, 2fr)
-            115px
-            125px
-            65px
+            minmax(380px, 2.5fr)
             120px
-            132px;
-          gap: 14px;
+            130px
+            72px
+            120px
+            150px;
+          gap: 16px;
           align-items: center;
-          padding: 15px 17px;
-          border: 1px solid #e3e3e3;
-          border-radius: 12px;
+          padding: 15px 16px;
+          border: 1px solid #e4e9f0;
+          border-radius: 14px;
           background: #fff;
+          box-shadow: 0 1px 2px rgba(31, 33, 36, .025);
+          transition:
+            border-color .15s ease,
+            box-shadow .15s ease,
+            transform .15s ease;
+        }
+
+        .csb-bundle:hover {
+          border-color: #d5dce5;
+          box-shadow: 0 6px 18px rgba(31, 33, 36, .045);
+        }
+
+        .csb-bundle:has(.csb-product-select:checked) {
+          border-color: #a9c8f8;
+          background: #f8fbff;
+          box-shadow: 0 0 0 2px rgba(12, 98, 242, .055);
         }
 
         .csb-bundle--review {
@@ -1644,10 +1848,10 @@ export default function Bundles() {
 
         .csb-bundle__title {
           margin-bottom: 4px;
-          color: #303030;
+          color: #202223;
           font-size: 12.5px;
           line-height: 1.4;
-          font-weight: 650;
+          font-weight: 680;
         }
 
         .csb-bundle__sku {
@@ -1799,13 +2003,14 @@ export default function Bundles() {
         }
 
         .csb-action-button--primary {
-          border-color: #303030;
-          background: #303030;
+          border-color: #0c62f2;
+          background: #0c62f2;
           color: #fff;
         }
 
         .csb-action-button--primary:hover {
-          background: #1f1f1f;
+          border-color: #0a56d5;
+          background: #0a56d5;
         }
 
         .csb-action-button:disabled {
@@ -1847,7 +2052,7 @@ export default function Bundles() {
           font-size: 12px;
         }
 
-        @media (max-width: 1100px) {
+        @media (max-width: 1280px) {
           .csb-kpis {
             grid-template-columns:
               repeat(
@@ -1856,15 +2061,33 @@ export default function Bundles() {
               );
           }
 
+          .csb-context-grid {
+            grid-template-columns:
+              1fr;
+          }
+
+          .csb-list-header {
+            display: none;
+          }
+
           .csb-bundle {
             grid-template-columns:
-              1fr
+              minmax(0, 2fr)
               1fr
               1fr;
           }
         }
 
         @media (max-width: 700px) {
+          .csb-hero {
+            align-items: stretch;
+            flex-direction: column;
+          }
+
+          .csb-hero__status {
+            justify-content: space-between;
+          }
+
           .csb-kpis {
             grid-template-columns:
               1fr
@@ -1892,13 +2115,37 @@ export default function Bundles() {
 
       <div className="csb-page">
 
-        <h1 className="csb-title">
-          Bundles
-        </h1>
+        <div className="csb-hero">
 
-        <p className="csb-description">
-          Las propuestas ahora se generan desde las reglas configuradas en Plantillas.
-        </p>
+          <div>
+
+            <div className="csb-eyebrow">
+              Generador automático
+            </div>
+
+            <h2 className="csb-title">
+              Resumen de bundles
+            </h2>
+
+            <p className="csb-description">
+              Revisa propuestas, compatibilidad, precio y stock antes de crear los bundles en Shopify.
+            </p>
+
+          </div>
+
+          <div className="csb-hero__status">
+
+            <strong>
+              {newCount}
+            </strong>
+
+            <span>
+              nuevos por crear
+            </span>
+
+          </div>
+
+        </div>
 
         {/* KPIS */}
 
@@ -2001,6 +2248,8 @@ export default function Bundles() {
 
         </div>
 
+        <div className="csb-context-grid">
+
         {/* PRICE */}
 
         <div className="csb-price-status">
@@ -2069,6 +2318,8 @@ export default function Bundles() {
 
         </div>
 
+        </div>
+
         {/* API ERRORS */}
 
         {systemErrors.length >
@@ -2114,6 +2365,22 @@ export default function Bundles() {
 
           </div>
         )}
+
+        <div className="csb-section-head">
+
+          <div>
+
+            <h2>
+              Propuestas
+            </h2>
+
+            <p>
+              Filtra, compara y selecciona únicamente los bundles que quieras crear.
+            </p>
+
+          </div>
+
+        </div>
 
         {/* TOOLBAR */}
 
@@ -2377,6 +2644,37 @@ export default function Bundles() {
         )}
 
         {/* LIST */}
+
+        {visibleCandidates.length >
+          0 && (
+          <div className="csb-list-header">
+
+            <div>
+              Propuesta
+            </div>
+
+            <div>
+              Individual
+            </div>
+
+            <div>
+              Bundle
+            </div>
+
+            <div>
+              Stock
+            </div>
+
+            <div>
+              Estado
+            </div>
+
+            <div>
+              Acciones
+            </div>
+
+          </div>
+        )}
 
         <div className="csb-list">
 
