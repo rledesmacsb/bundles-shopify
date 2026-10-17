@@ -381,7 +381,7 @@ export default function Rules() {
     "idle";
 
   return (
-    <s-page heading="Reglas y cálculo">
+    <s-page heading="Reglas y cálculo" inlineSize="large">
 
       <style>{`
         /*
@@ -396,24 +396,26 @@ export default function Rules() {
         }
 
         .csr-page {
-          max-width: 1200px;
-          margin: 0 auto;
           width: 100%;
+          max-width: none;
+          margin: 0;
+          padding-bottom: 24px;
         }
 
         .csr-intro {
-          margin-bottom: 18px;
-          color: #616161;
-          font-size: 13px;
-          line-height: 1.5;
+          max-width: 860px;
+          margin: 4px 2px 18px;
+          color: #69727d;
+          font-size: 12px;
+          line-height: 1.55;
         }
 
         .csr-grid {
           display: grid;
           grid-template-columns:
-            minmax(0, 1fr)
-            minmax(340px, 0.85fr);
-          gap: 18px;
+            minmax(0, 1.25fr)
+            minmax(380px, .75fr);
+          gap: 16px;
           align-items: start;
           width: 100%;
         }
@@ -430,10 +432,11 @@ export default function Rules() {
         .csr-card {
           min-width: 0;
           width: 100%;
-          border: 1px solid #e3e3e3;
-          border-radius: 14px;
+          border: 1px solid #e4e9f0;
+          border-radius: 16px;
           background: #fff;
           overflow: hidden;
+          box-shadow: 0 1px 2px rgba(31,33,36,.03), 0 8px 22px rgba(31,33,36,.035);
         }
 
         .csr-card__header {
@@ -518,8 +521,8 @@ export default function Rules() {
         }
 
         .csr-option--selected {
-          border-color: #b8a4f5;
-          background: #faf8ff;
+          border-color: #a9c8f8;
+          background: #f7faff;
         }
 
         .csr-option input[type="radio"] {
@@ -567,8 +570,8 @@ export default function Rules() {
         .csr-field input:focus,
         .csr-field select:focus {
           outline: none;
-          border-color: #8c6ff7;
-          box-shadow: 0 0 0 1px #8c6ff7;
+          border-color: #0c62f2;
+          box-shadow: 0 0 0 1px #0c62f2;
         }
 
         .csr-help {
@@ -586,7 +589,7 @@ export default function Rules() {
           min-height: 40px;
           border: 0;
           border-radius: 9px;
-          background: #303030;
+          background: #0c62f2;
           color: #fff;
           font: inherit;
           font-size: 12px;
@@ -693,7 +696,7 @@ export default function Rules() {
         .csr-notice {
           margin-top: 18px;
           padding: 13px 14px;
-          border: 1px solid #e3e3e3;
+          border: 1px solid #e4e9f0;
           border-radius: 11px;
           background: #fafafa;
           color: #616161;
