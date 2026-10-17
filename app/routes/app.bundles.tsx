@@ -1,6 +1,7 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -13,6 +14,7 @@ import type {
 import {
   useFetcher,
   useLoaderData,
+  useRevalidator,
 } from "react-router";
 
 import {
@@ -262,6 +264,27 @@ export const action =
     };
   };
 
+/*
+ * La creación masiva reutiliza la misma acción segura de una
+ * sola propuesta. Durante el lote evitamos recargar este loader
+ * completo después de cada bundle y lo actualizamos una vez al final.
+ */
+export const shouldRevalidate = ({
+  formData,
+  defaultShouldRevalidate,
+}: any) => {
+  if (
+    formData?.get(
+      "skipRevalidate",
+    ) ===
+    "true"
+  ) {
+    return false;
+  }
+
+  return defaultShouldRevalidate;
+};
+
 /* =========================================================
    FILTER
 ========================================================= */
@@ -369,6 +392,13 @@ function getShopifyAdminProductHref(
     : "shopify:admin/products";
 }
 
+type BulkCreationResult = {
+  candidateId: string;
+  success: boolean;
+  partial: boolean;
+  message: string;
+};
+
 /* =========================================================
    COMPONENT
 ========================================================= */
@@ -383,6 +413,14 @@ export default function Bundles() {
     useFetcher<
       typeof action
     >();
+
+  const bulkFetcher =
+    useFetcher<
+      typeof action
+    >();
+
+  const revalidator =
+    useRevalidator();
 
   const shopify =
     useAppBridge();
@@ -415,6 +453,59 @@ export default function Bundles() {
       null,
     );
 
+  const [
+    selectedCandidateIds,
+    setSelectedCandidateIds,
+  ] =
+    useState<
+      Set<string>
+    >(
+      new Set(),
+    );
+
+  const [
+    bulkQueue,
+    setBulkQueue,
+  ] =
+    useState<
+      string[]
+    >(
+      [],
+    );
+
+  const [
+    bulkCurrentCandidateId,
+    setBulkCurrentCandidateId,
+  ] =
+    useState<
+      string | null
+    >(
+      null,
+    );
+
+  const [
+    bulkResults,
+    setBulkResults,
+  ] =
+    useState<
+      BulkCreationResult[]
+    >(
+      [],
+    );
+
+  const [
+    bulkRunning,
+    setBulkRunning,
+  ] =
+    useState(
+      false,
+    );
+
+  const bulkWasBusyRef =
+    useRef(
+      false,
+    );
+
   useEffect(() => {
     if (
       fetcher.data?.message
@@ -439,6 +530,157 @@ export default function Bundles() {
     }
   }, [
     fetcher.state,
+  ]);
+
+  useEffect(() => {
+    if (
+      bulkFetcher.state !==
+      "idle"
+    ) {
+      bulkWasBusyRef.current =
+        true;
+
+      return;
+    }
+
+    if (
+      !bulkRunning ||
+      !bulkCurrentCandidateId ||
+      !bulkWasBusyRef.current
+    ) {
+      return;
+    }
+
+    bulkWasBusyRef.current =
+      false;
+
+    const result =
+      bulkFetcher.data;
+
+    const normalizedResult:
+      BulkCreationResult = {
+      candidateId:
+        bulkCurrentCandidateId,
+
+      success:
+        Boolean(
+          result?.success,
+        ),
+
+      partial:
+        Boolean(
+          result &&
+          "partial" in
+            result &&
+          result.partial,
+        ),
+
+      message:
+        result?.message ??
+        "La solicitud terminó sin una respuesta válida.",
+    };
+
+    const nextResults = [
+      ...bulkResults,
+      normalizedResult,
+    ];
+
+    setBulkResults(
+      nextResults,
+    );
+
+    const currentIndex =
+      bulkQueue.indexOf(
+        bulkCurrentCandidateId,
+      );
+
+    const nextCandidateId =
+      currentIndex >=
+        0
+        ? bulkQueue[
+            currentIndex +
+              1
+          ] ??
+          null
+        : null;
+
+    if (
+      nextCandidateId
+    ) {
+      setBulkCurrentCandidateId(
+        nextCandidateId,
+      );
+
+      bulkFetcher.submit(
+        {
+          intent:
+            "create_draft",
+
+          candidateId:
+            nextCandidateId,
+
+          skipRevalidate:
+            "true",
+        },
+        {
+          method:
+            "post",
+        },
+      );
+
+      return;
+    }
+
+    setBulkRunning(
+      false,
+    );
+
+    setBulkCurrentCandidateId(
+      null,
+    );
+
+    setSelectedCandidateIds(
+      new Set(),
+    );
+
+    const created =
+      nextResults.filter(
+        (item) =>
+          item.success,
+      ).length;
+
+    const review =
+      nextResults.filter(
+        (item) =>
+          !item.success &&
+          item.partial,
+      ).length;
+
+    const skipped =
+      nextResults.length -
+      created -
+      review;
+
+    shopify.toast.show(
+      "Proceso terminado: " +
+      created +
+      " creados, " +
+      skipped +
+      " omitidos y " +
+      review +
+      " para revisar.",
+    );
+
+    revalidator.revalidate();
+  }, [
+    bulkFetcher.state,
+    bulkFetcher.data,
+    bulkRunning,
+    bulkCurrentCandidateId,
+    bulkQueue,
+    bulkResults,
+    shopify,
+    revalidator,
   ]);
 
   /* =======================================================
@@ -731,6 +973,215 @@ export default function Bundles() {
       ],
     );
 
+  const visibleNewCandidateIds =
+    useMemo(
+      () =>
+        visibleCandidates
+          .filter(
+            (candidate) =>
+              matchByCandidateId.get(
+                candidate.id,
+              )?.status ===
+              "new",
+          )
+          .map(
+            (candidate) =>
+              candidate.id,
+          ),
+      [
+        visibleCandidates,
+        matchByCandidateId,
+      ],
+    );
+
+  const selectedNewCandidateIds =
+    useMemo(
+      () =>
+        sortedCandidates
+          .filter(
+            (candidate) =>
+              selectedCandidateIds.has(
+                candidate.id,
+              ) &&
+              matchByCandidateId.get(
+                candidate.id,
+              )?.status ===
+                "new",
+          )
+          .map(
+            (candidate) =>
+              candidate.id,
+          ),
+      [
+        sortedCandidates,
+        selectedCandidateIds,
+        matchByCandidateId,
+      ],
+    );
+
+  const allVisibleNewSelected =
+    visibleNewCandidateIds.length >
+      0 &&
+    visibleNewCandidateIds.every(
+      (candidateId) =>
+        selectedCandidateIds.has(
+          candidateId,
+        ),
+    );
+
+  const toggleCandidateSelection =
+    (
+      candidateId:
+        string,
+    ) => {
+      if (
+        bulkRunning
+      ) {
+        return;
+      }
+
+      setSelectedCandidateIds(
+        (current) => {
+          const next =
+            new Set(
+              current,
+            );
+
+          if (
+            next.has(
+              candidateId,
+            )
+          ) {
+            next.delete(
+              candidateId,
+            );
+          } else {
+            next.add(
+              candidateId,
+            );
+          }
+
+          return next;
+        },
+      );
+    };
+
+  const toggleVisibleNewSelection =
+    () => {
+      if (
+        bulkRunning
+      ) {
+        return;
+      }
+
+      setSelectedCandidateIds(
+        (current) => {
+          const next =
+            new Set(
+              current,
+            );
+
+          if (
+            allVisibleNewSelected
+          ) {
+            for (
+              const candidateId
+              of visibleNewCandidateIds
+            ) {
+              next.delete(
+                candidateId,
+              );
+            }
+          } else {
+            for (
+              const candidateId
+              of visibleNewCandidateIds
+            ) {
+              next.add(
+                candidateId,
+              );
+            }
+          }
+
+          return next;
+        },
+      );
+    };
+
+  const startBulkCreation =
+    () => {
+      if (
+        bulkRunning ||
+        fetcher.state !==
+          "idle"
+      ) {
+        return;
+      }
+
+      const queue =
+        selectedNewCandidateIds;
+
+      if (
+        queue.length ===
+        0
+      ) {
+        shopify.toast.show(
+          "Selecciona al menos un bundle nuevo.",
+        );
+
+        return;
+      }
+
+      const confirmed =
+        window.confirm(
+          "Se crearán " +
+          queue.length +
+          " bundles como borrador, uno por uno. Cada propuesta se volverá a validar antes de crearla. ¿Continuar?",
+        );
+
+      if (
+        !confirmed
+      ) {
+        return;
+      }
+
+      setBulkQueue(
+        queue,
+      );
+
+      setBulkResults(
+        [],
+      );
+
+      setBulkRunning(
+        true,
+      );
+
+      const firstCandidateId =
+        queue[0];
+
+      setBulkCurrentCandidateId(
+        firstCandidateId,
+      );
+
+      bulkFetcher.submit(
+        {
+          intent:
+            "create_draft",
+
+          candidateId:
+            firstCandidateId,
+
+          skipRevalidate:
+            "true",
+        },
+        {
+          method:
+            "post",
+        },
+      );
+    };
+
   /* =======================================================
      REVIEW: MULTI VARIANT
   ======================================================= */
@@ -893,7 +1344,8 @@ export default function Bundles() {
 
   const working =
     fetcher.state !==
-    "idle";
+      "idle" ||
+    bulkRunning;
 
   return (
     <s-page heading="Bundles">
@@ -1079,6 +1531,82 @@ export default function Bundles() {
           border-radius: 8px;
           font: inherit;
           font-size: 11.5px;
+        }
+
+        .csb-bulk-bar {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          margin-bottom: 14px;
+          padding: 11px 13px;
+          border: 1px solid #d9d9d9;
+          border-radius: 12px;
+          background: #fafafa;
+        }
+
+        .csb-bulk-bar__left,
+        .csb-bulk-bar__right {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+
+        .csb-bulk-info {
+          color: #616161;
+          font-size: 11px;
+        }
+
+        .csb-bulk-button {
+          min-height: 34px;
+          padding: 6px 11px;
+          border: 1px solid #c9c9c9;
+          border-radius: 8px;
+          background: #fff;
+          color: #303030;
+          font: inherit;
+          font-size: 10.5px;
+          font-weight: 650;
+          cursor: pointer;
+        }
+
+        .csb-bulk-button--primary {
+          border-color: #303030;
+          background: #303030;
+          color: #fff;
+        }
+
+        .csb-bulk-button:disabled {
+          opacity: .5;
+          cursor: default;
+        }
+
+        .csb-bulk-progress {
+          margin-bottom: 14px;
+          padding: 12px 14px;
+          border: 1px solid #d7caef;
+          border-radius: 11px;
+          background: #faf7ff;
+          color: #5c35d5;
+          font-size: 11px;
+          line-height: 1.5;
+        }
+
+        .csb-product-cell {
+          display: flex;
+          align-items: flex-start;
+          gap: 10px;
+          min-width: 0;
+        }
+
+        .csb-product-select {
+          margin-top: 2px;
+          flex: 0 0 auto;
+        }
+
+        .csb-product-content {
+          min-width: 0;
         }
 
         .csb-list {
@@ -1344,8 +1872,10 @@ export default function Bundles() {
           }
 
           .csb-toolbar,
-          .csb-price-status {
+          .csb-price-status,
+          .csb-bulk-bar {
             flex-direction: column;
+            align-items: stretch;
           }
 
           .csb-search {
@@ -1733,6 +2263,119 @@ export default function Bundles() {
 
         </div>
 
+        {/* BULK CREATION */}
+
+        <div className="csb-bulk-bar">
+
+          <div className="csb-bulk-bar__left">
+
+            <button
+              type="button"
+              className="csb-bulk-button"
+              onClick={
+                toggleVisibleNewSelection
+              }
+              disabled={
+                bulkRunning ||
+                visibleNewCandidateIds.length ===
+                  0
+              }
+            >
+              {
+                allVisibleNewSelected
+                  ? "Quitar selección visible"
+                  : "Seleccionar nuevos visibles"
+              }
+            </button>
+
+            <span className="csb-bulk-info">
+              {
+                selectedNewCandidateIds.length
+              }{" "}
+              seleccionado(s)
+            </span>
+
+          </div>
+
+          <div className="csb-bulk-bar__right">
+
+            <button
+              type="button"
+              className="csb-bulk-button csb-bulk-button--primary"
+              onClick={
+                startBulkCreation
+              }
+              disabled={
+                bulkRunning ||
+                fetcher.state !==
+                  "idle" ||
+                selectedNewCandidateIds.length ===
+                  0
+              }
+            >
+              {
+                bulkRunning
+                  ? "Creando..."
+                  : "Crear seleccionados (" +
+                    selectedNewCandidateIds.length +
+                    ")"
+              }
+            </button>
+
+          </div>
+
+        </div>
+
+        {(bulkRunning ||
+          bulkResults.length >
+            0) && (
+          <div className="csb-bulk-progress">
+
+            {bulkRunning ? (
+              <>
+                Procesando{" "}
+                {
+                  bulkResults.length +
+                  1
+                }{" "}
+                de{" "}
+                {
+                  bulkQueue.length
+                }
+                . Cada bundle se crea de forma secuencial y se valida nuevamente en el servidor.
+              </>
+            ) : (
+              <>
+                Último proceso:{" "}
+                {
+                  bulkResults.filter(
+                    (item) =>
+                      item.success,
+                  ).length
+                }{" "}
+                creados ·{" "}
+                {
+                  bulkResults.filter(
+                    (item) =>
+                      !item.success &&
+                      !item.partial,
+                  ).length
+                }{" "}
+                omitidos ·{" "}
+                {
+                  bulkResults.filter(
+                    (item) =>
+                      !item.success &&
+                      item.partial,
+                  ).length
+                }{" "}
+                para revisar.
+              </>
+            )}
+
+          </div>
+        )}
+
         {/* LIST */}
 
         <div className="csb-list">
@@ -1794,7 +2437,31 @@ export default function Bundles() {
 
                   {/* PRODUCT */}
 
-                  <div>
+                  <div className="csb-product-cell">
+
+                    {match.status ===
+                      "new" && (
+                      <input
+                        className="csb-product-select"
+                        type="checkbox"
+                        aria-label="Seleccionar bundle"
+                        checked={
+                          selectedCandidateIds.has(
+                            candidate.id,
+                          )
+                        }
+                        onChange={() =>
+                          toggleCandidateSelection(
+                            candidate.id,
+                          )
+                        }
+                        disabled={
+                          working
+                        }
+                      />
+                    )}
+
+                    <div className="csb-product-content">
 
                     <div className="csb-bundle__title">
                       {
@@ -1870,6 +2537,8 @@ export default function Bundles() {
 
                       </div>
                     )}
+
+                    </div>
 
                   </div>
 
