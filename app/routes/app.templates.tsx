@@ -733,7 +733,7 @@ export default function Templates() {
   }
 
   return (
-    <s-page heading="Plantillas de bundles">
+    <s-page heading="Plantillas de bundles" inlineSize="large">
 
       <style>{`
         .cst-page,
@@ -745,15 +745,17 @@ export default function Templates() {
 
         .cst-page {
           width: 100%;
-          max-width: 1250px;
-          margin: 0 auto;
+          max-width: none;
+          margin: 0;
+          padding-bottom: 24px;
         }
 
         .cst-intro {
-          margin: 0 0 18px;
-          color: #616161;
-          font-size: 13px;
-          line-height: 1.5;
+          max-width: 900px;
+          margin: 4px 2px 18px;
+          color: #69727d;
+          font-size: 12px;
+          line-height: 1.55;
         }
 
         .cst-warning {
@@ -786,9 +788,10 @@ export default function Templates() {
 
         .cst-template {
           overflow: hidden;
-          border: 1px solid #e3e3e3;
-          border-radius: 14px;
+          border: 1px solid #e4e9f0;
+          border-radius: 16px;
           background: #fff;
+          box-shadow: 0 1px 2px rgba(31,33,36,.03), 0 8px 22px rgba(31,33,36,.035);
         }
 
         .cst-template__header {
@@ -898,8 +901,8 @@ export default function Templates() {
         .cst-input:focus,
         .cst-select:focus {
           outline: none;
-          border-color: #8c6ff7;
-          box-shadow: 0 0 0 1px #8c6ff7;
+          border-color: #0c62f2;
+          box-shadow: 0 0 0 1px #0c62f2;
         }
 
         /* ===============================================
@@ -919,14 +922,14 @@ export default function Templates() {
         .cst-component {
           min-width: 0;
           padding: 14px;
-          border: 1px solid #e3e3e3;
+          border: 1px solid #e4e9f0;
           border-radius: 11px;
           background: #fafafa;
         }
 
         .cst-component--editing {
           grid-column: 1 / -1;
-          border-color: #cdbff6;
+          border-color: #a9c8f8;
           background: #fff;
         }
 
@@ -1119,7 +1122,7 @@ export default function Templates() {
           padding: 6px 16px;
           border: 0;
           border-radius: 8px;
-          background: #303030;
+          background: #0c62f2;
           color: #fff;
           font: inherit;
           font-size: 10.5px;
@@ -1166,13 +1169,13 @@ export default function Templates() {
           gap: 15px;
           margin-top: 18px;
           padding: 11px;
-          border: 1px solid #e3e3e3;
+          border: 1px solid #e4e9f0;
           border-radius: 12px;
           background: rgba(
             255,
             255,
             255,
-            .97
+            .98
           );
           box-shadow:
             0 4px 20px
