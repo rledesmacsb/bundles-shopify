@@ -926,9 +926,8 @@ export default function Components() {
         .csb-main,
         .csb-preview {
           border: 1px solid #e4e9f0;
-          border-radius: 16px;
+          border-radius: 10px;
           background: white;
-          box-shadow: 0 1px 2px rgba(31,33,36,.03), 0 8px 22px rgba(31,33,36,.035);
         }
 
         .csb-main {
@@ -937,7 +936,7 @@ export default function Components() {
 
         .csb-group {
           border: 1px solid #e4e9f0;
-          border-radius: 12px;
+          border-radius: 10px;
           overflow: hidden;
           margin-bottom: 14px;
         }
