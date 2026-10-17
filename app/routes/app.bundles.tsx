@@ -1510,15 +1510,6 @@ export default function Bundles() {
           padding: 4px 2px 0;
         }
 
-        .csb-eyebrow {
-          margin-bottom: 5px;
-          color: #0c62f2;
-          font-size: 10px;
-          font-weight: 750;
-          letter-spacing: .08em;
-          text-transform: uppercase;
-        }
-
         .csb-title {
           margin: 0 0 5px;
           font-size: 21px;
@@ -1537,23 +1528,20 @@ export default function Bundles() {
         .csb-hero-meta {
           display: flex;
           align-items: center;
-          gap: 10px;
+          gap: 16px;
           flex-wrap: wrap;
           justify-content: flex-end;
           color: #69727d;
           font-size: 10.5px;
         }
 
-        .csb-meta-pill {
-          padding: 7px 10px;
-          border: 1px solid #dfe5ec;
-          border-radius: 9px;
-          background: #fff;
+        .csb-meta-item {
           white-space: nowrap;
         }
 
-        .csb-meta-pill strong {
+        .csb-meta-item strong {
           color: #202223;
+          font-weight: 650;
         }
 
         .csb-error-banner,
@@ -1584,11 +1572,8 @@ export default function Bundles() {
 
         .csb-index {
           border: 1px solid #dfe5ec;
-          border-radius: 16px;
+          border-radius: 12px;
           background: #fff;
-          box-shadow:
-            0 1px 2px rgba(31, 33, 36, .035),
-            0 10px 28px rgba(31, 33, 36, .04);
         }
 
         .csb-views {
@@ -1691,7 +1676,6 @@ export default function Bundles() {
           border: 1px solid #0c62f2;
           background: #0c62f2;
           color: #fff;
-          box-shadow: 0 3px 8px rgba(12, 98, 242, .14);
         }
 
         .csb-primary-button:hover {
@@ -1754,7 +1738,6 @@ export default function Bundles() {
           font-weight: 720;
           letter-spacing: .055em;
           text-transform: uppercase;
-          backdrop-filter: blur(8px);
         }
 
         .csb-table-header--right {
@@ -2188,10 +2171,6 @@ export default function Bundles() {
 
           <div>
 
-            <div className="csb-eyebrow">
-              Gestión de catálogo
-            </div>
-
             <h2 className="csb-title">
               Bundles
             </h2>
@@ -2204,14 +2183,14 @@ export default function Bundles() {
 
           <div className="csb-hero-meta">
 
-            <span className="csb-meta-pill">
+            <span className="csb-meta-item">
               Canal:{" "}
               <strong>
                 Tienda online
               </strong>
             </span>
 
-            <span className="csb-meta-pill">
+            <span className="csb-meta-item">
               Precio:{" "}
               <strong>
                 {data.runtime.priceConfig.mode ===
