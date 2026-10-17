@@ -20,6 +20,18 @@ import {
   loadBundleDiagnostics,
 } from "../lib/bundle-diagnostics.server";
 
+import {
+  buildTemplateBundleState,
+} from "../lib/bundle-template-engine";
+
+import {
+  loadBundleTemplateCatalog,
+} from "../lib/bundle-template-catalog.server";
+
+import {
+  loadBundleRuntimeSettings,
+} from "../lib/bundle-runtime-settings.server";
+
 /* =========================================================
    LOADER
 ========================================================= */
@@ -38,8 +50,48 @@ export const loader =
         admin,
       );
 
+    /*
+     * The Home dashboard used the original single-family
+     * PC + Monitor calculation. Bundles now runs from the
+     * configurable template engine, so its proposal count
+     * must come from the same source of truth.
+     *
+     * Keep these calls sequential and predictable. This
+     * avoids large combined GraphQL requests.
+     */
+    const catalog =
+      await loadBundleTemplateCatalog(
+        admin,
+      );
+
+    const runtime =
+      await loadBundleRuntimeSettings(
+        admin,
+      );
+
+    const templateState =
+      buildTemplateBundleState(
+        catalog.products,
+        catalog.templates,
+        runtime.componentConfig,
+      );
+
     return {
       diagnostics,
+
+      templateBundlePossibleCount:
+        templateState
+          .candidates
+          .length,
+
+      activeTemplateCount:
+        templateState
+          .summaries
+          .filter(
+            (summary) =>
+              summary.enabled,
+          )
+          .length,
     };
   };
 
@@ -50,6 +102,8 @@ export const loader =
 export default function Index() {
   const {
     diagnostics,
+    templateBundlePossibleCount,
+    activeTemplateCount,
   } =
     useLoaderData<
       typeof loader
@@ -397,7 +451,7 @@ export default function Index() {
 
             <div className="csb-stat__value">
               {
-                diagnostics.bundlePossibleCount
+                templateBundlePossibleCount
               }
             </div>
           </div>
@@ -585,12 +639,26 @@ export default function Index() {
               </h2>
 
               <p className="csb-card-description">
-                Estado actual del generador PC + Monitor.
+                Estado actual del generador basado en plantillas.
               </p>
 
             </div>
 
             <div className="csb-status-list">
+
+              <div className="csb-status-row">
+
+                <span className="csb-status-label">
+                  Plantillas activas
+                </span>
+
+                <span className="csb-status-value csb-good">
+                  {
+                    activeTemplateCount
+                  }
+                </span>
+
+              </div>
 
               <div className="csb-status-row">
 
