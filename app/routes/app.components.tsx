@@ -1193,16 +1193,116 @@ export default function Components() {
         }
 
         @media (max-width: 600px) {
+          .csb-page {
+            padding-bottom: 20px;
+          }
+
           .csb-heading {
+            align-items: stretch;
             flex-direction: column;
+            gap: 12px;
+            margin-bottom: 14px;
+            padding-top: 0;
+          }
+
+          .csb-title {
+            font-size: 19px;
+          }
+
+          .csb-description {
+            font-size: 11.5px;
+          }
+
+          .csb-heading form,
+          .csb-heading s-button {
+            width: 100%;
+          }
+
+          .csb-layout {
+            gap: 12px;
+          }
+
+          .csb-main {
+            padding: 10px;
+            border-radius: 10px;
+          }
+
+          .csb-group {
+            margin-bottom: 10px;
+            border-radius: 9px;
+          }
+
+          .csb-group__header {
+            align-items: stretch;
+            flex-direction: column;
+            gap: 9px;
+            padding: 12px;
+          }
+
+          .csb-group__title {
+            line-height: 1.4;
+          }
+
+          .csb-count {
+            display: inline-flex;
+            margin-top: 5px;
+            margin-left: 0;
+          }
+
+          .csb-link-button,
+          .csb-outline-button {
+            width: 100%;
+            min-height: 40px;
           }
 
           .csb-row {
-            grid-template-columns: 44px minmax(0, 1fr);
+            grid-template-columns:
+              42px
+              minmax(0, 1fr);
+            gap: 10px;
+            padding: 11px 12px;
           }
 
           .csb-row > s-checkbox {
             grid-column: 2;
+          }
+
+          .csb-row__title {
+            font-size: 12px;
+          }
+
+          .csb-radio {
+            align-items: flex-start;
+            line-height: 1.35;
+          }
+
+          .csb-preview {
+            border-radius: 10px;
+          }
+
+          .csb-preview__header,
+          .csb-preview__body {
+            padding: 12px;
+          }
+
+          .csb-select {
+            min-height: 42px;
+          }
+
+          .csb-preview-product {
+            grid-template-columns:
+              54px
+              minmax(0, 1fr);
+          }
+
+          .csb-footer {
+            flex-direction: column;
+          }
+
+          .csb-next {
+            width: 100%;
+            min-height: 42px;
+            justify-content: center;
           }
         }
       `}</style>
