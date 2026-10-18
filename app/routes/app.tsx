@@ -71,12 +71,12 @@ export default function App() {
 
       <s-app-nav>
 
-        <s-link href="/app">
-          Home
-        </s-link>
-
         <s-link href="/app/bundles">
           Bundles
+        </s-link>
+
+        <s-link href="/app">
+          Resumen
         </s-link>
 
         <s-link href="/app/templates">
