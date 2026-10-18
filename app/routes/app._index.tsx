@@ -380,27 +380,110 @@ export default function Index() {
         }
 
         @media (max-width: 700px) {
+          .csb-home {
+            padding-bottom: 16px;
+          }
+
+          .csb-home-heading {
+            margin-bottom: 14px;
+            padding-top: 0;
+          }
+
+          .csb-home-title {
+            font-size: 19px;
+          }
+
+          .csb-home-description {
+            font-size: 12px;
+          }
+
           .csb-stats {
             grid-template-columns:
               repeat(
                 2,
                 minmax(0, 1fr)
               );
+            gap: 8px;
+            margin-bottom: 12px;
+          }
+
+          .csb-stat {
+            min-height: 82px;
+            padding: 13px;
+            border-radius: 10px;
+          }
+
+          .csb-stat:last-child {
+            grid-column: 1 / -1;
+          }
+
+          .csb-stat__label {
+            font-size: 10.5px;
+            line-height: 1.25;
+          }
+
+          .csb-stat__value {
+            font-size: 22px;
+          }
+
+          .csb-dashboard-grid {
+            gap: 12px;
+          }
+
+          .csb-card {
+            border-radius: 10px;
+          }
+
+          .csb-card-header {
+            padding: 14px;
           }
 
           .csb-alert {
             grid-template-columns:
-              36px
+              32px
               minmax(0, 1fr);
+            gap: 10px;
+            padding: 13px 14px;
+          }
+
+          .csb-alert__icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+          }
+
+          .csb-alert__title {
+            font-size: 12px;
+          }
+
+          .csb-alert__detail {
+            font-size: 10.5px;
           }
 
           .csb-alert .csb-button {
             grid-column: 2;
-            justify-self: start;
+            width: 100%;
+            min-height: 42px;
+            justify-self: stretch;
+          }
+
+          .csb-status-list {
+            padding: 6px 14px;
+          }
+
+          .csb-status-row {
+            gap: 10px;
+            padding: 10px 0;
+            font-size: 11px;
           }
 
           .csb-actions {
             grid-template-columns: 1fr;
+            padding: 14px;
+          }
+
+          .csb-actions .csb-button {
+            min-height: 42px;
           }
         }
       `}</style>
