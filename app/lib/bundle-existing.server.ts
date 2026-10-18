@@ -784,7 +784,7 @@ async function fetchExistingBundles(
             .hasNextPage
         ) {
           errors.push(
-            `El bundle "${product.title}" tiene más de ${BUNDLE_COMPONENT_LIMIT} componentes. No se continuará hasta aumentar el límite de forma controlada.`,
+            `El producto de Bundles "${product.title}" tiene más de ${BUNDLE_COMPONENT_LIMIT} componentes. No se continuará hasta aumentar el límite de forma controlada.`,
           );
 
           break;
@@ -1845,7 +1845,7 @@ export async function loadExistingPcMonitorBundleMatches(
             managed,
 
           message:
-            `Ya existe un bundle administrado por la plantilla "${candidate.templateName}".`,
+            `Ya existe un producto de Bundles administrado por la plantilla "${candidate.templateName}".`,
         },
       );
 
@@ -1891,8 +1891,8 @@ export async function loadExistingPcMonitorBundleMatches(
 
           message:
             managedByApp
-              ? `Ya existe un bundle administrado para la plantilla "${candidate.templateName}".`
-              : `Shopify ya tiene un bundle nativo para este PC que corresponde a la plantilla "${candidate.templateName}".`,
+              ? `Ya existe un producto de Bundles administrado para la plantilla "${candidate.templateName}".`
+              : `Shopify ya tiene un producto de Bundles nativo para este PC que corresponde a la plantilla "${candidate.templateName}".`,
         },
       );
 
@@ -2056,7 +2056,7 @@ export async function loadExistingPcMonitorBundleMatches(
                 conflict,
 
               message:
-                "El SKU existe, pero no fue posible comprobar de forma segura si corresponde al bundle recién creado.",
+                "El SKU existe, pero no fue posible comprobar de forma segura si corresponde al producto de Bundles recién creado.",
             },
           );
 
