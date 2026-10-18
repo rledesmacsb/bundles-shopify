@@ -34,10 +34,14 @@ import {
 } from "../lib/bundle-engine";
 
 import {
-  loadPcMonitorBundleData,
   parseStoredIds,
   savePcMonitorBundleConfig,
 } from "../lib/bundle-data.server";
+
+import {
+  invalidateShopBundleCache,
+  loadCachedPcMonitorBundleData,
+} from "../lib/bundle-cache.server";
 
 /* =========================================================
    LOADER
@@ -47,13 +51,17 @@ export const loader =
   async ({
     request,
   }: LoaderFunctionArgs) => {
-    const { admin } =
+    const {
+      admin,
+      session,
+    } =
       await authenticate.admin(
         request,
       );
 
-    return loadPcMonitorBundleData(
+    return loadCachedPcMonitorBundleData(
       admin,
+      session.shop,
     );
   };
 
@@ -65,7 +73,10 @@ export const action =
   async ({
     request,
   }: ActionFunctionArgs) => {
-    const { admin } =
+    const {
+      admin,
+      session,
+    } =
       await authenticate.admin(
         request,
       );
@@ -149,17 +160,28 @@ export const action =
         : selectedWifiAdapterIds[0] ??
           null;
 
-    return savePcMonitorBundleConfig(
-      admin,
-      {
-        selectedMonitorIds,
-        selectedKeyboardMouseIds,
-        selectedWifiAdapterIds,
+    const result =
+      await savePcMonitorBundleConfig(
+        admin,
+        {
+          selectedMonitorIds,
+          selectedKeyboardMouseIds,
+          selectedWifiAdapterIds,
 
-        primaryKeyboardMouseId,
-        primaryWifiAdapterId,
-      },
-    );
+          primaryKeyboardMouseId,
+          primaryWifiAdapterId,
+        },
+      );
+
+    if (
+      result.success
+    ) {
+      invalidateShopBundleCache(
+        session.shop,
+      );
+    }
+
+    return result;
   };
 
 /* =========================================================
