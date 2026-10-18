@@ -43,9 +43,13 @@ import {
 } from "../lib/bundle-templates";
 
 import {
-  loadBundleTemplateSettings,
   saveBundleTemplates,
 } from "../lib/bundle-templates.server";
+
+import {
+  invalidateShopBundleCache,
+  loadCachedBundleTemplateSettings,
+} from "../lib/bundle-cache.server";
 
 /* =========================================================
    TYPES
@@ -64,13 +68,17 @@ type RuleKey =
 export const loader = async ({
   request,
 }: LoaderFunctionArgs) => {
-  const { admin } =
+  const {
+    admin,
+    session,
+  } =
     await authenticate.admin(
       request,
     );
 
-  return loadBundleTemplateSettings(
+  return loadCachedBundleTemplateSettings(
     admin,
+    session.shop,
   );
 };
 
@@ -81,7 +89,10 @@ export const loader = async ({
 export const action = async ({
   request,
 }: ActionFunctionArgs) => {
-  const { admin } =
+  const {
+    admin,
+    session,
+  } =
     await authenticate.admin(
       request,
     );
@@ -130,10 +141,21 @@ export const action = async ({
       parsed,
     );
 
-  return saveBundleTemplates(
-    admin,
-    templates,
-  );
+  const result =
+    await saveBundleTemplates(
+      admin,
+      templates,
+    );
+
+  if (
+    result.success
+  ) {
+    invalidateShopBundleCache(
+      session.shop,
+    );
+  }
+
+  return result;
 };
 
 /* =========================================================
