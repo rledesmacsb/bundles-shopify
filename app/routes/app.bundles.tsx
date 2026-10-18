@@ -1666,133 +1666,6 @@ export default function Bundles() {
           gap: 4px;
         }
 
-        .csb-drawer-backdrop {
-          position: fixed;
-          inset: 0;
-          z-index: 999;
-          background: rgba(24, 29, 35, .3);
-        }
-
-        .csb-drawer {
-          position: fixed;
-          top: 0;
-          right: 0;
-          bottom: 0;
-          z-index: 1000;
-          width: min(460px, 94vw);
-          overflow-y: auto;
-          border-left: 1px solid #e1e3e5;
-          background: #fff;
-          box-shadow: -12px 0 32px rgba(31, 33, 36, .12);
-        }
-
-        .csb-drawer__header {
-          position: sticky;
-          top: 0;
-          z-index: 2;
-          display: flex;
-          align-items: flex-start;
-          justify-content: space-between;
-          gap: 16px;
-          padding: 16px;
-          border-bottom: 1px solid #e1e3e5;
-          background: #fff;
-        }
-
-        .csb-drawer__eyebrow {
-          margin-bottom: 4px;
-          color: #616161;
-          font-size: 11px;
-          font-weight: 600;
-        }
-
-        .csb-drawer__title {
-          margin: 0;
-          color: #202223;
-          font-size: 16px;
-          line-height: 1.35;
-          font-weight: 650;
-        }
-
-        .csb-drawer__body {
-          padding: 16px;
-        }
-
-        .csb-detail-section {
-          margin-bottom: 20px;
-          padding-bottom: 18px;
-          border-bottom: 1px solid #e1e3e5;
-        }
-
-        .csb-detail-section:last-child {
-          margin-bottom: 0;
-          padding-bottom: 0;
-          border-bottom: 0;
-        }
-
-        .csb-detail-heading {
-          margin: 0 0 10px;
-          color: #202223;
-          font-size: 12px;
-          font-weight: 650;
-        }
-
-        .csb-detail-row {
-          display: flex;
-          justify-content: space-between;
-          gap: 16px;
-          margin-bottom: 8px;
-          color: #616161;
-          font-size: 12px;
-          line-height: 1.4;
-        }
-
-        .csb-detail-row:last-child {
-          margin-bottom: 0;
-        }
-
-        .csb-detail-row strong {
-          max-width: 65%;
-          color: #202223;
-          text-align: right;
-          font-weight: 600;
-          overflow-wrap: anywhere;
-        }
-
-        .csb-detail-component {
-          padding: 9px 0;
-          border-bottom: 1px solid #f1f1f1;
-        }
-
-        .csb-detail-component:last-child {
-          border-bottom: 0;
-        }
-
-        .csb-detail-component__role {
-          margin-bottom: 3px;
-          color: #8a939d;
-          font-size: 10px;
-          font-weight: 600;
-        }
-
-        .csb-detail-component__name {
-          color: #202223;
-          font-size: 12px;
-          line-height: 1.4;
-        }
-
-        .csb-detail-actions {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
-
-        .csb-detail-actions form,
-        .csb-detail-actions s-button,
-        .csb-detail-actions s-link {
-          width: 100%;
-        }
-
         @media (max-width: 760px) {
           .csb-native-page {
             gap: 10px;
@@ -1801,17 +1674,6 @@ export default function Bundles() {
 
           .csb-native-selection-grid {
             grid-template-columns: 1fr;
-          }
-
-          .csb-drawer {
-            left: 0;
-            width: 100vw;
-            border-left: 0;
-          }
-
-          .csb-drawer__header,
-          .csb-drawer__body {
-            padding: 14px;
           }
         }
       `}</style>
@@ -2398,11 +2260,15 @@ export default function Bundles() {
 
                           <s-button
                             variant="tertiary"
-                            onClick={() =>
+                            onClick={() => {
                               setDetailCandidateId(
                                 candidate.id,
-                              )
-                            }
+                              );
+
+                              shopify.modal.show(
+                                "bundle-detail-modal",
+                              );
+                            }}
                           >
                             Ver detalle
                           </s-button>
@@ -2677,71 +2543,69 @@ export default function Bundles() {
 
       </div>
 
-      {detailCandidate &&
-        detailMatch &&
-        detailPrice && (
-        <>
+      <s-modal
+        id="bundle-detail-modal"
+        heading="Detalle de Bundles"
+        accessibilityLabel="Detalle de Bundles"
+        size="large"
+        onHide={() =>
+          setDetailCandidateId(
+            null,
+          )
+        }
+      >
 
-          <div
-            className="csb-drawer-backdrop"
-            onClick={() =>
-              setDetailCandidateId(
-                null,
-              )
-            }
-          />
+        {detailCandidate &&
+          detailMatch &&
+          detailPrice && (
+          <s-stack gap="base">
 
-          <aside
-            className="csb-drawer"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Detalle de Bundles"
-          >
+            <s-section heading="Producto">
 
-            <div className="csb-drawer__header">
+              <s-stack gap="small">
 
-              <div>
-
-                <div className="csb-drawer__eyebrow">
-                  Detalle de Bundles
-                </div>
-
-                <h3 className="csb-drawer__title">
+                <s-heading>
                   {
                     detailCandidate
                       .baseProduct
                       .title
                   }
-                </h3>
+                </s-heading>
 
-              </div>
+                <s-text tone="neutral">
+                  SKU:{" "}
+                  {
+                    detailCandidate
+                      .identity
+                      .sku
+                  }
+                </s-text>
 
-              <s-button
-                variant="tertiary"
-                icon="x"
-                accessibilityLabel="Cerrar detalle"
-                onClick={() =>
-                  setDetailCandidateId(
-                    null,
-                  )
-                }
-              />
+              </s-stack>
 
-            </div>
+            </s-section>
 
-            <div className="csb-drawer__body">
+            <s-section heading="Estado">
 
-              <div className="csb-detail-section">
+              <s-stack gap="small">
 
-                <div className="csb-detail-heading">
-                  Estado
-                </div>
-
-                <div className="csb-detail-row">
-                  <span>
+                <s-grid
+                  gridTemplateColumns="1fr auto"
+                  gap="small"
+                >
+                  <s-text tone="neutral">
                     Flujo
-                  </span>
-                  <strong>
+                  </s-text>
+                  <s-badge
+                    tone={
+                      getWorkflowStatusTone(
+                        detailMatch.status,
+                        detailMatch
+                          .existingProduct
+                          ?.publishedAt,
+                      )
+                    }
+                  >
                     {
                       getWorkflowStatusLabel(
                         detailMatch.status,
@@ -2750,39 +2614,26 @@ export default function Bundles() {
                           ?.publishedAt,
                       )
                     }
-                  </strong>
-                </div>
+                  </s-badge>
+                </s-grid>
 
-                <div className="csb-detail-row">
-                  <span>
-                    Plantilla
-                  </span>
-                  <strong>
-                    {
-                      detailCandidate
-                        .templateName
-                    }
-                  </strong>
-                </div>
-
-                <div className="csb-detail-row">
-                  <span>
-                    SKU generado
-                  </span>
-                  <strong>
-                    {
-                      detailCandidate
-                        .identity
-                        .sku
-                    }
-                  </strong>
-                </div>
-
-                <div className="csb-detail-row">
-                  <span>
+                <s-grid
+                  gridTemplateColumns="1fr auto"
+                  gap="small"
+                >
+                  <s-text tone="neutral">
                     Estado Shopify
-                  </span>
-                  <strong>
+                  </s-text>
+
+                  <s-badge
+                    tone={
+                      getProductStatusTone(
+                        detailMatch
+                          .existingProduct
+                          ?.status,
+                      )
+                    }
+                  >
                     {
                       getProductStatusLabel(
                         detailMatch
@@ -2790,14 +2641,26 @@ export default function Bundles() {
                           ?.status,
                       )
                     }
-                  </strong>
-                </div>
+                  </s-badge>
+                </s-grid>
 
-                <div className="csb-detail-row">
-                  <span>
+                <s-grid
+                  gridTemplateColumns="1fr auto"
+                  gap="small"
+                >
+                  <s-text tone="neutral">
                     Tienda online
-                  </span>
-                  <strong>
+                  </s-text>
+
+                  <s-badge
+                    tone={
+                      detailMatch
+                        .existingProduct
+                        ?.publishedAt
+                        ? "success"
+                        : "neutral"
+                    }
+                  >
                     {
                       detailMatch
                         .existingProduct
@@ -2808,83 +2671,85 @@ export default function Bundles() {
                           ? "Sin publicar"
                           : "Aún no creado"
                     }
-                  </strong>
-                </div>
+                  </s-badge>
+                </s-grid>
 
-              </div>
-
-              <div className="csb-detail-section">
-
-                <div className="csb-detail-heading">
-                  Componentes
-                </div>
-
-                <div className="csb-detail-component">
-                  <div className="csb-detail-component__role">
-                    PC
-                  </div>
-                  <div className="csb-detail-component__name">
+                <s-grid
+                  gridTemplateColumns="1fr auto"
+                  gap="small"
+                >
+                  <s-text tone="neutral">
+                    Plantilla
+                  </s-text>
+                  <s-text>
                     {
                       detailCandidate
-                        .baseProduct
-                        .title
+                        .templateName
                     }
-                  </div>
-                </div>
+                  </s-text>
+                </s-grid>
 
-                <div className="csb-detail-component">
-                  <div className="csb-detail-component__role">
-                    Monitor
-                  </div>
-                  <div className="csb-detail-component__name">
-                    {
-                      detailCandidate
-                        .monitor
-                        .title
-                    }
-                  </div>
-                </div>
+              </s-stack>
 
-                <div className="csb-detail-component">
-                  <div className="csb-detail-component__role">
-                    Teclado y mouse
-                  </div>
-                  <div className="csb-detail-component__name">
-                    {
-                      detailCandidate
-                        .keyboardMouse
-                        .title
-                    }
-                  </div>
-                </div>
+            </s-section>
 
-                <div className="csb-detail-component">
-                  <div className="csb-detail-component__role">
-                    Wi-Fi
-                  </div>
-                  <div className="csb-detail-component__name">
-                    {
-                      detailCandidate
-                        .wifiAdapter
-                        ?.title ??
-                      "Wi-Fi integrado · no requiere adaptador"
-                    }
-                  </div>
-                </div>
+            <s-section heading="Componentes">
 
-              </div>
+              <s-stack gap="small">
 
-              <div className="csb-detail-section">
+                <s-text>
+                  <strong>PC:</strong>{" "}
+                  {
+                    detailCandidate
+                      .baseProduct
+                      .title
+                  }
+                </s-text>
 
-                <div className="csb-detail-heading">
-                  Compatibilidad
-                </div>
+                <s-text>
+                  <strong>Monitor:</strong>{" "}
+                  {
+                    detailCandidate
+                      .monitor
+                      .title
+                  }
+                </s-text>
 
-                <div className="csb-detail-row">
-                  <span>
+                <s-text>
+                  <strong>Teclado y mouse:</strong>{" "}
+                  {
+                    detailCandidate
+                      .keyboardMouse
+                      .title
+                  }
+                </s-text>
+
+                <s-text>
+                  <strong>Wi-Fi:</strong>{" "}
+                  {
+                    detailCandidate
+                      .wifiAdapter
+                      ?.title ??
+                    "Wi-Fi integrado · no requiere adaptador"
+                  }
+                </s-text>
+
+              </s-stack>
+
+            </s-section>
+
+            <s-section heading="Compatibilidad">
+
+              <s-stack gap="small">
+
+                <s-grid
+                  gridTemplateColumns="1fr auto"
+                  gap="small"
+                >
+                  <s-text tone="neutral">
                     Conexión de video
-                  </span>
-                  <strong>
+                  </s-text>
+                  <s-text>
                     {
                       detailCandidate
                         .commonVideoPorts
@@ -2893,69 +2758,87 @@ export default function Bundles() {
                         ) ||
                       "Sin coincidencia"
                     }
-                  </strong>
-                </div>
+                  </s-text>
+                </s-grid>
 
-                <div className="csb-detail-row">
-                  <span>
+                <s-grid
+                  gridTemplateColumns="1fr auto"
+                  gap="small"
+                >
+                  <s-text tone="neutral">
                     Disponibles
-                  </span>
-                  <strong>
+                  </s-text>
+                  <s-text>
                     {
                       getTemplateCandidateStock(
                         detailCandidate,
                       )
                     }
-                  </strong>
-                </div>
+                  </s-text>
+                </s-grid>
 
-              </div>
+              </s-stack>
 
-              <div className="csb-detail-section">
+            </s-section>
 
-                <div className="csb-detail-heading">
-                  Precio
-                </div>
+            <s-section heading="Precio">
 
-                <div className="csb-detail-row">
-                  <span>
+              <s-stack gap="small">
+
+                <s-grid
+                  gridTemplateColumns="1fr auto"
+                  gap="small"
+                >
+                  <s-text tone="neutral">
                     Suma individual
-                  </span>
-                  <strong>
+                  </s-text>
+                  <s-text>
                     {formatPrice(
                       detailPrice.componentPrice,
                       data.catalog.currencyCode,
                     )}
-                  </strong>
-                </div>
+                  </s-text>
+                </s-grid>
 
-                <div className="csb-detail-row">
-                  <span>
+                <s-grid
+                  gridTemplateColumns="1fr auto"
+                  gap="small"
+                >
+                  <s-text tone="neutral">
                     Ahorro
-                  </span>
-                  <strong>
+                  </s-text>
+                  <s-text tone="success">
                     {formatPrice(
                       detailPrice.savings,
                       data.catalog.currencyCode,
                     )}
-                  </strong>
-                </div>
+                  </s-text>
+                </s-grid>
 
-                <div className="csb-detail-row">
-                  <span>
+                <s-divider />
+
+                <s-grid
+                  gridTemplateColumns="1fr auto"
+                  gap="small"
+                >
+                  <s-text>
                     Precio de Bundles
-                  </span>
-                  <strong>
+                  </s-text>
+                  <s-heading>
                     {formatPrice(
                       detailPrice.finalPrice,
                       data.catalog.currencyCode,
                     )}
-                  </strong>
-                </div>
+                  </s-heading>
+                </s-grid>
 
-              </div>
+              </s-stack>
 
-              <div className="csb-detail-actions">
+            </s-section>
+
+            <s-section heading="Acciones">
+
+              <s-stack gap="small">
 
                 {detailMatch.status ===
                   "new" && (
@@ -3078,14 +2961,23 @@ export default function Bundles() {
                   </s-link>
                 )}
 
-              </div>
+              </s-stack>
 
-            </div>
+            </s-section>
 
-          </aside>
+          </s-stack>
+        )}
 
-        </>
-      )}
+        <s-button
+          slot="secondary-actions"
+          variant="secondary"
+          commandFor="bundle-detail-modal"
+          command="--hide"
+        >
+          Cerrar
+        </s-button>
+
+      </s-modal>
 
     </s-page>
   );
