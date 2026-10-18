@@ -365,6 +365,7 @@ type BundleView =
   | "create"
   | "published"
   | "unpublished"
+  | "review"
   | "excluded";
 
 type BundleSort =
@@ -653,6 +654,19 @@ export default function Bundles() {
       new Set(),
     );
 
+  // Shopify search indexes may not reflect a newly verified draft immediately.
+  // A successful, audited create response is authoritative for this page session.
+  const [
+    recentlyCreated,
+    setRecentlyCreated,
+  ] = useState<
+    Map<string, {
+      productId: string;
+      partial: boolean;
+      message: string;
+    }>
+  >(new Map());
+
   const [
     bulkQueue,
     setBulkQueue,
@@ -708,6 +722,29 @@ export default function Bundles() {
     fetcher.data,
     shopify,
   ]);
+
+  useEffect(() => {
+    const response = fetcher.data;
+    if (
+      !creatingCandidateId ||
+      !response ||
+      !("productId" in response) ||
+      typeof response.productId !== "string" ||
+      !(response.success || ("partial" in response && response.partial))
+    ) {
+      return;
+    }
+
+    setRecentlyCreated((previous) => {
+      const next = new Map(previous);
+      next.set(creatingCandidateId, {
+        productId: response.productId as string,
+        partial: !response.success,
+        message: response.message,
+      });
+      return next;
+    });
+  }, [fetcher.data, creatingCandidateId]);
 
   useEffect(() => {
     if (
@@ -806,6 +843,23 @@ export default function Bundles() {
     setBulkResults(
       nextResults,
     );
+
+    if (
+      result &&
+      "productId" in result &&
+      typeof result.productId === "string" &&
+      (normalizedResult.success || normalizedResult.partial)
+    ) {
+      setRecentlyCreated((previous) => {
+        const next = new Map(previous);
+        next.set(bulkCurrentCandidateId, {
+          productId: result.productId as string,
+          partial: normalizedResult.partial,
+          message: normalizedResult.message,
+        });
+        return next;
+      });
+    }
 
     const currentIndex =
       bulkQueue.indexOf(
@@ -917,95 +971,91 @@ export default function Bundles() {
     );
 
   const matchByCandidateId =
-    useMemo(
-      () =>
-        new Map(
-          data
-            .existingBundleMatches
-            .matches
-            .map(
-              (match) => [
-                match.candidateId,
-                match,
-              ],
-            ),
-        ),
-      [
-        data
-          .existingBundleMatches
-          .matches,
-      ],
-    );
+    useMemo(() => {
+      const matches = new Map(
+        data.existingBundleMatches.matches.map((match) => [
+          match.candidateId,
+          match,
+        ]),
+      );
 
-  const newCount =
-    data
-      .existingBundleMatches
-      .matches
-      .filter(
-        (match) =>
-          match.status ===
-          "new",
-      )
-      .length;
+      for (const [candidateId, created] of recentlyCreated) {
+        const serverMatch = matches.get(candidateId);
+        if (!serverMatch) {
+          continue;
+        }
 
-  const reviewMatchCount =
-    data
-      .existingBundleMatches
-      .matches
-      .filter(
-        (match) =>
-          isReviewStatus(
-            match.status,
-          ),
-      )
-      .length;
+        // Do not hide a different product that Shopify has now identified.
+        if (
+          serverMatch.existingProduct?.id &&
+          serverMatch.existingProduct.id !== created.productId
+        ) {
+          continue;
+        }
+
+        if (
+          isExistingStatus(serverMatch.status) &&
+          serverMatch.existingProduct?.id === created.productId
+        ) {
+          continue;
+        }
+
+        const candidate = state.candidates.find(
+          (item) => item.id === candidateId,
+        );
+
+        matches.set(candidateId, {
+          ...serverMatch,
+          status: created.partial ? "lookup_error" : "existing_managed",
+          existingProduct: {
+            id: created.productId,
+            title: candidate?.identity.title ?? "Bundles",
+            handle: "",
+            status: created.partial ? "UNKNOWN" : "DRAFT",
+            productType: candidate?.identity.productType ?? "Bundles",
+            publishedAt: null,
+            sku: candidate?.identity.sku ?? null,
+            managedBy: created.partial ? null : "csbyte-commerce-tools",
+            template: candidate?.templateId ?? null,
+            baseProductId: candidate?.baseProduct.id ?? null,
+            componentProductIds: [],
+            componentProducts: [],
+          },
+          message: created.partial
+            ? `Shopify creó el producto, pero su configuración necesita revisión: ${created.message}`
+            : "Borrador creado y verificado. Pendiente de publicación en Tienda online.",
+        });
+      }
+
+      return matches;
+    }, [data.existingBundleMatches.matches, recentlyCreated, state.candidates]);
+
+  const allMatches = Array.from(matchByCandidateId.values());
 
   const createCount =
-    newCount +
-    reviewMatchCount +
-    state
-      .multiVariantBaseProducts
-      .length;
+    allMatches.filter((match) => match.status === "new").length;
+
+  const reviewCount =
+    allMatches.filter((match) => isReviewStatus(match.status)).length +
+    state.multiVariantBaseProducts.length;
 
   const publishedCount =
-    data
-      .existingBundleMatches
-      .matches
-      .filter(
-        (match) =>
-          isExistingStatus(
-            match.status,
-          ) &&
-          Boolean(
-            match
-              .existingProduct
-              ?.publishedAt,
-          ),
-      )
-      .length;
+    allMatches.filter(
+      (match) =>
+        isExistingStatus(match.status) &&
+        Boolean(match.existingProduct?.publishedAt),
+    ).length;
 
   const unpublishedCount =
-    data
-      .existingBundleMatches
-      .matches
-      .filter(
-        (match) =>
-          isExistingStatus(
-            match.status,
-          ) &&
-          !match
-            .existingProduct
-            ?.publishedAt,
-      )
-      .length;
+    allMatches.filter(
+      (match) =>
+        isExistingStatus(match.status) &&
+        !match.existingProduct?.publishedAt,
+    ).length;
 
   const excludedCount =
-    state
-      .manuallyExcludedProducts
-      .length +
-    state
-      .automaticallyExcludedProducts
-      .length;
+    state.manuallyExcludedProducts.length +
+    state.automaticallyExcludedProducts.length;
 
   const filteredCandidates =
     useMemo(
@@ -1031,19 +1081,12 @@ export default function Bundles() {
                 return false;
               }
 
-              if (
-                view ===
-                "create"
-              ) {
-                if (
-                  match.status !==
-                    "new" &&
-                  !isReviewStatus(
-                    match.status,
-                  )
-                ) {
-                  return false;
-                }
+              if (view === "create" && match.status !== "new") {
+                return false;
+              }
+
+              if (view === "review" && !isReviewStatus(match.status)) {
+                return false;
               }
 
               if (
@@ -1321,7 +1364,7 @@ export default function Bundles() {
 
   const visibleMultiVariant =
     view ===
-    "create"
+    "review"
       ? state
           .multiVariantBaseProducts
           .filter(
@@ -1787,6 +1830,11 @@ export default function Bundles() {
                     "unpublished",
                     "Sin publicar",
                     unpublishedCount,
+                  ],
+                  [
+                    "review",
+                    "Revisar",
+                    reviewCount,
                   ],
                   [
                     "excluded",
@@ -2294,7 +2342,7 @@ export default function Bundles() {
                 )}
 
                 {view ===
-                  "create" &&
+                  "review" &&
                   visibleMultiVariant.map(
                     (product) => (
                       <s-table-row
