@@ -41,17 +41,15 @@ import {
 } from "../lib/bundle-template-engine";
 
 import {
-  loadBundleTemplateCatalog,
-} from "../lib/bundle-template-catalog.server";
-
-import {
-  loadBundleRuntimeSettings,
-} from "../lib/bundle-runtime-settings.server";
-
-import {
-  loadExistingPcMonitorBundleMatches,
   type ExistingBundleLookupStatus,
 } from "../lib/bundle-existing.server";
+
+import {
+  invalidateShopBundleCache,
+  loadCachedBundleRuntimeSettings,
+  loadCachedBundleTemplateCatalog,
+  loadCachedExistingBundleMatches,
+} from "../lib/bundle-cache.server";
 
 import {
   loadPcMonitorManualExcludedProductIds,
@@ -72,23 +70,27 @@ export const loader =
   }: LoaderFunctionArgs) => {
     const {
       admin,
+      session,
     } =
       await authenticate.admin(
         request,
       );
 
-    /*
-     * Sequential intentionally.
-     */
-    const catalog =
-      await loadBundleTemplateCatalog(
-        admin,
-      );
+    const [
+      catalog,
+      runtime,
+    ] =
+      await Promise.all([
+        loadCachedBundleTemplateCatalog(
+          admin,
+          session.shop,
+        ),
 
-    const runtime =
-      await loadBundleRuntimeSettings(
-        admin,
-      );
+        loadCachedBundleRuntimeSettings(
+          admin,
+          session.shop,
+        ),
+      ]);
 
     const state =
       buildTemplateBundleState(
@@ -98,8 +100,9 @@ export const loader =
       );
 
     const existingBundleMatches =
-      await loadExistingPcMonitorBundleMatches(
+      await loadCachedExistingBundleMatches(
         admin,
+        session.shop,
         state.candidates,
       );
 
@@ -122,6 +125,7 @@ export const action =
   }: ActionFunctionArgs) => {
     const {
       admin,
+      session,
     } =
       await authenticate.admin(
         request,
@@ -170,10 +174,28 @@ export const action =
         };
       }
 
-      return createDraftBundleFromCandidate(
-        admin,
-        candidateId,
-      );
+      const result =
+        await createDraftBundleFromCandidate(
+          admin,
+          candidateId,
+        );
+
+      if (
+        result.success ||
+        (
+          "partial" in
+            result &&
+          Boolean(
+            result.partial,
+          )
+        )
+      ) {
+        invalidateShopBundleCache(
+          session.shop,
+        );
+      }
+
+      return result;
     }
 
     /* -----------------------------------------------------
@@ -251,6 +273,10 @@ export const action =
     ) {
       return result;
     }
+
+    invalidateShopBundleCache(
+      session.shop,
+    );
 
     return {
       success:
