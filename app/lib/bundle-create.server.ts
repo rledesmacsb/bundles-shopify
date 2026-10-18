@@ -929,7 +929,7 @@ async function waitForBundleCreation(
           null,
 
         errors: [
-          "Shopify no devolvió la operación del bundle.",
+          "Shopify no devolvió la operación de Bundles.",
         ],
       };
     }
@@ -991,7 +991,7 @@ async function waitForBundleCreation(
       null,
 
     errors: [
-      "Shopify todavía está procesando el bundle. La operación superó el tiempo de espera de la app.",
+      "Shopify todavía está procesando el producto de Bundles. La operación superó el tiempo de espera de la app.",
     ],
   };
 }
@@ -1414,7 +1414,7 @@ async function writeBundleMetadata(
   ) {
     return {
       errors: [
-        "No fue posible construir los metadatos internos del bundle.",
+        "No fue posible construir los metadatos internos de Bundles.",
       ],
     };
   }
@@ -1802,7 +1802,7 @@ async function verifyCreatedBundle(
   ) {
     return {
       errors: [
-        "No fue posible verificar el bundle recién creado.",
+        "No fue posible verificar el producto de Bundles recién creado.",
       ],
     };
   }
@@ -1842,7 +1842,7 @@ async function verifyCreatedBundle(
     "DRAFT"
   ) {
     verificationErrors.push(
-      "El bundle no quedó en estado Borrador.",
+      "El producto de Bundles no quedó en estado Borrador.",
     );
   }
 
@@ -1854,7 +1854,7 @@ async function verifyCreatedBundle(
     1
   ) {
     verificationErrors.push(
-      "El bundle padre no tiene exactamente una variante.",
+      "El producto principal de Bundles no tiene exactamente una variante.",
     );
 
     return {
@@ -1931,7 +1931,7 @@ async function verifyCreatedBundle(
       .hasNextPage
   ) {
     verificationErrors.push(
-      "El bundle tiene más componentes de los esperados.",
+      "El producto de Bundles tiene más componentes de los esperados.",
     );
   }
 
@@ -2290,7 +2290,7 @@ export async function createDraftBundleFromCandidate(
         false,
 
       message:
-        `No se pudo comprobar de forma segura si el bundle ya existe: ${formatErrors(
+        `No se pudo comprobar de forma segura si el producto de Bundles ya existe: ${formatErrors(
           existing.errors,
         )}`,
     };
@@ -2336,7 +2336,7 @@ export async function createDraftBundleFromCandidate(
         false,
 
       message:
-        "El precio calculado del bundle no es válido.",
+        "El precio calculado de Bundles no es válido.",
     };
   }
 
@@ -2371,7 +2371,7 @@ export async function createDraftBundleFromCandidate(
       message:
         error instanceof Error
           ? error.message
-          : "No fue posible iniciar la creación del bundle.",
+          : "No fue posible iniciar la creación de Bundles.",
     };
   }
 
@@ -2485,7 +2485,7 @@ export async function createDraftBundleFromCandidate(
         parent.id,
 
       message:
-        `Shopify creó el bundle, pero no fue posible terminar la configuración del producto: ${formatErrors(
+        `Shopify creó el producto de Bundles, pero no fue posible terminar su configuración: ${formatErrors(
           productUpdate.errors,
         )}. No vuelvas a crearlo.`,
     };
@@ -2519,7 +2519,7 @@ export async function createDraftBundleFromCandidate(
         parent.id,
 
       message:
-        `El bundle fue creado como borrador, pero falló la configuración de precio/SKU: ${formatErrors(
+        `El producto de Bundles fue creado como borrador, pero falló la configuración de precio/SKU: ${formatErrors(
           variantUpdate.errors,
         )}. No vuelvas a crearlo.`,
     };
@@ -2554,7 +2554,7 @@ export async function createDraftBundleFromCandidate(
         parent.id,
 
       message:
-        `El bundle fue creado y configurado, pero no fue posible guardar su identificación interna: ${formatErrors(
+        `El producto de Bundles fue creado y configurado, pero no fue posible guardar su identificación interna: ${formatErrors(
           metadataResult.errors,
         )}. No vuelvas a crearlo.`,
     };
@@ -2588,7 +2588,7 @@ export async function createDraftBundleFromCandidate(
         parent.id,
 
       message:
-        `El bundle fue creado como borrador, pero la verificación final detectó diferencias: ${formatErrors(
+        `El producto de Bundles fue creado como borrador, pero la verificación final detectó diferencias: ${formatErrors(
           verification.errors,
         )}`,
     };
@@ -2613,6 +2613,6 @@ export async function createDraftBundleFromCandidate(
       price.finalPrice,
 
     message:
-      `Bundle creado correctamente como borrador: ${candidate.identity.title}.`,
+      `Producto de Bundles creado correctamente como borrador: ${candidate.identity.title}.`,
   };
 }
