@@ -709,23 +709,77 @@ export default function Rules() {
           }
         }
 
-        @media (max-width: 500px) {
+        @media (max-width: 600px) {
+          .csr-page {
+            padding-bottom: 18px;
+          }
+
+          .csr-intro {
+            margin-top: 0;
+            margin-bottom: 12px;
+            font-size: 11.5px;
+          }
+
+          .csr-grid {
+            gap: 12px;
+          }
+
+          .csr-card {
+            border-radius: 10px;
+          }
+
           .csr-card__header,
           .csr-card__body {
-            padding-left: 14px;
-            padding-right: 14px;
+            padding: 14px;
+          }
+
+          .csr-card__title {
+            font-size: 14px;
+          }
+
+          .csr-section {
+            margin-bottom: 20px;
           }
 
           .csr-option {
+            grid-template-columns:
+              22px
+              minmax(0, 1fr);
+            gap: 9px;
             padding: 12px;
+          }
+
+          .csr-option input[type="radio"] {
+            width: 18px;
+            height: 18px;
+          }
+
+          .csr-option__title {
+            font-size: 12px;
+          }
+
+          .csr-field input,
+          .csr-field select {
+            min-height: 42px;
+            font-size: 12px;
+          }
+
+          .csr-save {
+            min-height: 44px;
           }
 
           .csr-row {
             gap: 10px;
+            font-size: 10.5px;
           }
 
           .csr-row--final strong {
             font-size: 18px;
+          }
+
+          .csr-notice {
+            margin-top: 12px;
+            padding: 11px 12px;
           }
         }
       `}</style>
