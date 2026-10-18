@@ -1492,7 +1492,7 @@ export default function Bundles() {
         0
       ) {
         shopify.toast.show(
-          "Selecciona al menos un bundle por crear.",
+          "Selecciona al menos una propuesta de Bundles por crear.",
         );
 
         return;
@@ -2602,7 +2602,7 @@ export default function Bundles() {
               }
             >
               <option value="all">
-                Todos los tipos de bundle
+                Todos los tipos de Bundles
               </option>
 
               {state.summaries
@@ -2695,7 +2695,7 @@ export default function Bundles() {
             <div className="csb-bulk-progress">
 
               {bulkRunning
-                ? `Procesando ${bulkResults.length + 1} de ${bulkQueue.length}. Cada bundle se valida nuevamente antes de crearse.`
+                ? `Procesando ${bulkResults.length + 1} de ${bulkQueue.length}. Cada propuesta se valida nuevamente antes de crearse.`
                 : `Último proceso: ${bulkResults.filter((item) => item.success).length} creados · ${bulkResults.filter((item) => !item.success && !item.partial).length} omitidos · ${bulkResults.filter((item) => !item.success && item.partial).length} para revisar.`}
 
             </div>
@@ -2728,7 +2728,7 @@ export default function Bundles() {
               </div>
 
               <div>
-                Bundle
+                Bundles
               </div>
 
               <div className="csb-table-header--right">
@@ -2833,7 +2833,7 @@ export default function Bundles() {
                       <input
                         className="csb-checkbox"
                         type="checkbox"
-                        aria-label="Seleccionar bundle"
+                        aria-label="Seleccionar propuesta de Bundles"
                         checked={
                           selected
                         }
@@ -3256,7 +3256,7 @@ export default function Bundles() {
             className="csb-drawer"
             role="dialog"
             aria-modal="true"
-            aria-label="Detalle del bundle"
+            aria-label="Detalle de Bundles"
           >
 
             <div className="csb-drawer__header">
@@ -3264,7 +3264,7 @@ export default function Bundles() {
               <div>
 
                 <div className="csb-drawer__eyebrow">
-                  Detalle del bundle
+                  Detalle de Bundles
                 </div>
 
                 <h3 className="csb-drawer__title">
@@ -3506,7 +3506,7 @@ export default function Bundles() {
 
                 <div className="csb-detail-row">
                   <span>
-                    Precio bundle
+                    Precio de Bundles
                   </span>
                   <strong>
                     {formatPrice(
