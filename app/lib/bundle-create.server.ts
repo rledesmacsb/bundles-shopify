@@ -1386,8 +1386,9 @@ async function updateBundleProduct(
 /* =========================================================
    UPDATE PARENT VARIANT
 
-   - Commercial bundle price
-   - BND-{base SKU}
+   - Precio comercial
+   - SKU BND-{base SKU}
+   - Peso total de los componentes
 ========================================================= */
 
 async function updateBundleVariant(
@@ -2765,7 +2766,7 @@ export async function createDraftBundleFromCandidate(
         parent.id,
 
       message:
-        `El producto de Bundles fue creado como borrador, pero falló la configuración de precio/SKU: ${formatErrors(
+        `El producto de Bundles fue creado como borrador, pero falló la configuración de precio, SKU o peso: ${formatErrors(
           variantUpdate.errors,
         )}. No vuelvas a crearlo.`,
     };
