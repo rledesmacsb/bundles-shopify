@@ -1120,10 +1120,12 @@ async function searchExactSkuBatch(
         )}"`,
     );
 
+  // Include draft products explicitly. A newly-created Bundle remains
+  // DRAFT and must not be treated as an available SKU on the next load.
   const query =
     `(${terms.join(
       " OR ",
-    )})`;
+    )}) AND product_status:ACTIVE,DRAFT,ARCHIVED,UNLISTED`;
 
   try {
     const response =
