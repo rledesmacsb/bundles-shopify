@@ -58,6 +58,7 @@ import {
 
 import {
   createDraftBundleFromCandidate,
+  syncExistingBundleWeightFromCandidate,
 } from "../lib/bundle-create.server";
 
 /* =========================================================
@@ -189,6 +190,51 @@ export const action =
             result.partial,
           )
         )
+      ) {
+        invalidateShopBundleCache(
+          session.shop,
+        );
+      }
+
+      return result;
+    }
+
+    /* -----------------------------------------------------
+       SYNC WEIGHT ON AN EXISTING BUNDLES PRODUCT
+    ----------------------------------------------------- */
+
+    if (
+      intent ===
+      "sync_weight"
+    ) {
+      const candidateId =
+        String(
+          formData.get(
+            "candidateId",
+          ) ??
+            "",
+        ).trim();
+
+      if (
+        !candidateId
+      ) {
+        return {
+          success:
+            false,
+
+          message:
+            "No se recibió la propuesta a actualizar.",
+        };
+      }
+
+      const result =
+        await syncExistingBundleWeightFromCandidate(
+          admin,
+          candidateId,
+        );
+
+      if (
+        result.success
       ) {
         invalidateShopBundleCache(
           session.shop,
@@ -3590,6 +3636,37 @@ export default function Bundles() {
                       }
                     >
                       Excluir este PC de todas las propuestas
+                    </button>
+
+                  </fetcher.Form>
+                )}
+
+                {detailMatch
+                  .existingProduct && (
+                  <fetcher.Form method="post">
+
+                    <input
+                      type="hidden"
+                      name="intent"
+                      value="sync_weight"
+                    />
+
+                    <input
+                      type="hidden"
+                      name="candidateId"
+                      value={
+                        detailCandidate.id
+                      }
+                    />
+
+                    <button
+                      className="csb-secondary-button"
+                      type="submit"
+                      disabled={
+                        working
+                      }
+                    >
+                      Actualizar peso
                     </button>
 
                   </fetcher.Form>
