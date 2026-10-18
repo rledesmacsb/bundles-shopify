@@ -41,6 +41,14 @@ export const loader =
     };
   };
 
+/*
+ * The app shell only returns the public API key. It does not
+ * need to authenticate again when moving between child pages
+ * or after child actions.
+ */
+export const shouldRevalidate =
+  () => false;
+
 /* =========================================================
    APP
 ========================================================= */
