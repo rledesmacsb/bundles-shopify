@@ -135,7 +135,7 @@ export default function Index() {
   }
 
   return (
-    <s-page heading="Home" inlineSize="large">
+    <s-page heading="Resumen" inlineSize="large">
 
       <s-stack gap="base">
 
