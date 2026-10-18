@@ -17,20 +17,14 @@ import {
 } from "../shopify.server";
 
 import {
-  loadBundleDiagnostics,
-} from "../lib/bundle-diagnostics.server";
-
-import {
   buildTemplateBundleState,
 } from "../lib/bundle-template-engine";
 
 import {
-  loadBundleTemplateCatalog,
-} from "../lib/bundle-template-catalog.server";
-
-import {
-  loadBundleRuntimeSettings,
-} from "../lib/bundle-runtime-settings.server";
+  loadCachedBundleDiagnostics,
+  loadCachedBundleRuntimeSettings,
+  loadCachedBundleTemplateCatalog,
+} from "../lib/bundle-cache.server";
 
 /* =========================================================
    LOADER
@@ -40,34 +34,35 @@ export const loader =
   async ({
     request,
   }: LoaderFunctionArgs) => {
-    const { admin } =
+    const {
+      admin,
+      session,
+    } =
       await authenticate.admin(
         request,
       );
 
-    const diagnostics =
-      await loadBundleDiagnostics(
-        admin,
-      );
+    const [
+      diagnostics,
+      catalog,
+      runtime,
+    ] =
+      await Promise.all([
+        loadCachedBundleDiagnostics(
+          admin,
+          session.shop,
+        ),
 
-    /*
-     * The Home dashboard used the original single-family
-     * PC + Monitor calculation. Bundles now runs from the
-     * configurable template engine, so its proposal count
-     * must come from the same source of truth.
-     *
-     * Keep these calls sequential and predictable. This
-     * avoids large combined GraphQL requests.
-     */
-    const catalog =
-      await loadBundleTemplateCatalog(
-        admin,
-      );
+        loadCachedBundleTemplateCatalog(
+          admin,
+          session.shop,
+        ),
 
-    const runtime =
-      await loadBundleRuntimeSettings(
-        admin,
-      );
+        loadCachedBundleRuntimeSettings(
+          admin,
+          session.shop,
+        ),
+      ]);
 
     const templateState =
       buildTemplateBundleState(
