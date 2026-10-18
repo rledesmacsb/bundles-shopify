@@ -873,7 +873,7 @@ export default function Rules() {
                         </div>
 
                         <div className="csr-option__description">
-                          El bundle utiliza la suma normal de todos sus componentes.
+                          La combinación de Bundles utiliza la suma normal de todos sus componentes.
                         </div>
 
                       </div>
@@ -1156,7 +1156,7 @@ export default function Rules() {
               </h2>
 
               <p className="csr-card__description">
-                Vista previa usando un bundle real disponible.
+                Vista previa usando una combinación real de Bundles.
               </p>
 
             </div>
@@ -1385,7 +1385,7 @@ export default function Rules() {
                 </>
               ) : (
                 <div className="csr-notice">
-                  Todavía no existe un bundle PC + Monitor elegible para utilizar como ejemplo.
+                  Todavía no existe una combinación de Bundles PC + Monitor elegible para utilizar como ejemplo.
                 </div>
               )}
 
@@ -1396,7 +1396,7 @@ export default function Rules() {
         </div>
 
         <div className="csr-notice">
-          El redondeo puede aumentar o disminuir algunos cientos de pesos respecto del precio calculado, pero nunca permitirá que el bundle termine más caro que comprar sus componentes individualmente.
+          El redondeo puede aumentar o disminuir algunos cientos de pesos respecto del precio calculado, pero nunca permitirá que el precio de Bundles termine más caro que comprar sus componentes individualmente.
         </div>
 
       </div>
