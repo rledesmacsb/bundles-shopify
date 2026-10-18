@@ -1233,11 +1233,80 @@ export default function Templates() {
         }
 
         @media (max-width: 600px) {
+          .cst-page {
+            padding-bottom: 88px;
+          }
+
+          .cst-intro {
+            margin-top: 0;
+            margin-bottom: 12px;
+            font-size: 11.5px;
+          }
+
+          .cst-warning,
+          .cst-errors {
+            padding: 11px 12px;
+            border-radius: 9px;
+            font-size: 10.5px;
+          }
+
+          .cst-list {
+            gap: 12px;
+          }
+
+          .cst-template {
+            border-radius: 10px;
+          }
+
+          .cst-template__header {
+            gap: 12px;
+            padding: 14px;
+          }
+
+          .cst-template__title {
+            font-size: 14px;
+          }
+
+          .cst-switch {
+            min-height: 38px;
+          }
+
+          .cst-body {
+            padding: 14px;
+          }
+
+          .cst-section {
+            margin-bottom: 20px;
+          }
+
+          .cst-grid,
+          .cst-grid--3,
+          .cst-components,
           .cst-condition,
           .cst-condition--metafield,
           .cst-condition--metafield-no-value {
             grid-template-columns:
               1fr;
+          }
+
+          .cst-input,
+          .cst-select {
+            min-height: 42px;
+            font-size: 12px;
+          }
+
+          .cst-component {
+            padding: 12px;
+          }
+
+          .cst-component__header {
+            align-items: stretch;
+            flex-direction: column;
+          }
+
+          .cst-edit-button {
+            width: 100%;
+            min-height: 40px;
           }
 
           .cst-rule-mode {
@@ -1249,13 +1318,39 @@ export default function Templates() {
             width: 100%;
           }
 
+          .cst-rule-actions {
+            flex-direction: column;
+          }
+
+          .cst-add,
+          .cst-done,
+          .cst-remove {
+            width: 100%;
+            min-height: 40px;
+          }
+
           .cst-save-wrap {
+            position: fixed;
+            right: 10px;
+            bottom: 10px;
+            left: 10px;
+            z-index: 30;
             align-items: stretch;
             flex-direction: column;
+            gap: 7px;
+            margin: 0;
+            padding: 9px;
+            border-radius: 10px;
+          }
+
+          .cst-save-status {
+            padding-left: 0;
+            text-align: center;
           }
 
           .cst-save {
             width: 100%;
+            min-height: 44px;
           }
         }
       `}</style>
