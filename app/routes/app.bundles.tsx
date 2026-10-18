@@ -451,7 +451,7 @@ function getWorkflowStatusLabel(
   }
 }
 
-function getWorkflowStatusClass(
+function getWorkflowStatusTone(
   status:
     ExistingBundleLookupStatus,
 
@@ -464,7 +464,7 @@ function getWorkflowStatusClass(
     status ===
     "new"
   ) {
-    return "csb-status csb-status--create";
+    return "info" as const;
   }
 
   if (
@@ -473,11 +473,11 @@ function getWorkflowStatusClass(
     )
   ) {
     return publishedAt
-      ? "csb-status csb-status--published"
-      : "csb-status csb-status--unpublished";
+      ? "success" as const
+      : "neutral" as const;
   }
 
-  return "csb-status csb-status--warning";
+  return "warning" as const;
 }
 
 function getProductStatusLabel(
@@ -508,7 +508,7 @@ function getProductStatusLabel(
   }
 }
 
-function getProductStatusClass(
+function getProductStatusTone(
   status:
     | string
     | null
@@ -518,16 +518,19 @@ function getProductStatusClass(
     status
   ) {
     case "ACTIVE":
-      return "csb-status csb-status--product-active";
+      return "success" as const;
 
     case "DRAFT":
-      return "csb-status csb-status--product-draft";
+      return "info" as const;
 
     case "ARCHIVED":
-      return "csb-status csb-status--product-archived";
+      return "critical" as const;
+
+    case "UNLISTED":
+      return "caution" as const;
 
     default:
-      return "csb-status csb-status--unpublished";
+      return "neutral" as const;
   }
 }
 
@@ -1609,486 +1612,58 @@ export default function Bundles() {
     >
 
       <style>{`
-        .csb-page,
-        .csb-page *,
-        .csb-page *::before,
-        .csb-page *::after {
-          box-sizing: border-box;
-        }
-
-        .csb-page {
-          width: 100%;
-          max-width: none;
-          margin: 0;
-          padding-bottom: 28px;
-          color: #202223;
-        }
-
-        .csb-hero {
+        .csb-native-page {
           display: flex;
-          align-items: flex-end;
-          justify-content: space-between;
-          gap: 24px;
-          margin-bottom: 18px;
-          padding: 4px 2px 0;
-        }
-
-        .csb-title {
-          margin: 0 0 5px;
-          font-size: 21px;
-          line-height: 1.2;
-          font-weight: 720;
-        }
-
-        .csb-description {
-          max-width: 760px;
-          margin: 0;
-          color: #69727d;
-          font-size: 12px;
-          line-height: 1.5;
-        }
-
-        .csb-hero-meta {
-          display: flex;
-          align-items: center;
-          gap: 16px;
-          flex-wrap: wrap;
-          justify-content: flex-end;
-          color: #69727d;
-          font-size: 10.5px;
-        }
-
-        .csb-meta-item {
-          white-space: nowrap;
-        }
-
-        .csb-meta-item strong {
-          color: #202223;
-          font-weight: 650;
-        }
-
-        .csb-error-banner,
-        .csb-warning-banner {
-          margin-bottom: 12px;
-          padding: 12px 14px;
-          border-radius: 12px;
-          font-size: 11px;
-          line-height: 1.5;
-        }
-
-        .csb-error-banner {
-          border: 1px solid #e6b7b7;
-          background: #fff5f5;
-          color: #8f2525;
-        }
-
-        .csb-warning-banner {
-          border: 1px solid #eed5a7;
-          background: #fffaf2;
-          color: #73510c;
-        }
-
-        .csb-warning-banner ul {
-          margin: 7px 0 0;
-          padding-left: 18px;
-        }
-
-        .csb-index {
-          border: 1px solid #dfe5ec;
-          border-radius: 12px;
-          background: #fff;
-        }
-
-        .csb-views {
-          display: flex;
-          align-items: center;
-          gap: 5px;
-          padding: 12px 14px;
-          border-bottom: 1px solid #edf0f3;
-          overflow-x: auto;
-        }
-
-        .csb-view {
-          flex: 0 0 auto;
-          min-height: 34px;
-          padding: 6px 11px;
-          border: 1px solid transparent;
-          border-radius: 9px;
-          background: transparent;
-          color: #53606d;
-          font: inherit;
-          font-size: 11px;
-          font-weight: 650;
-          cursor: pointer;
-        }
-
-        .csb-view:hover {
-          background: #f6f8fa;
-        }
-
-        .csb-view--active {
-          border-color: #cfe0fb;
-          background: #eef5ff;
-          color: #0c62f2;
-        }
-
-        .csb-controls {
-          display: grid;
-          grid-template-columns:
-            minmax(260px, 1fr)
-            minmax(190px, 260px)
-            minmax(170px, 220px);
-          gap: 10px;
-          padding: 12px 14px;
-          border-bottom: 1px solid #edf0f3;
-          background: #fbfcfd;
-        }
-
-        .csb-control {
-          width: 100%;
-          height: 38px;
-          min-width: 0;
-          padding: 0 11px;
-          border: 1px solid #d4d9df;
-          border-radius: 9px;
-          background: #fff;
-          color: #202223;
-          font: inherit;
-          font-size: 11px;
-          outline: none;
-        }
-
-        .csb-control:focus {
-          border-color: #8db5f6;
-          box-shadow: 0 0 0 3px rgba(12, 98, 242, .08);
-        }
-
-        .csb-selection-bar {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 14px;
-          padding: 10px 14px;
-          border-bottom: 1px solid #d8e5f8;
-          background: #f5f9ff;
-        }
-
-        .csb-selection-info {
-          color: #53606d;
-          font-size: 11px;
-        }
-
-        .csb-selection-info strong {
-          color: #0c62f2;
-        }
-
-        .csb-primary-button,
-        .csb-secondary-button,
-        .csb-link-button {
-          appearance: none;
-          min-height: 34px;
-          padding: 6px 11px;
-          border-radius: 8px;
-          font: inherit;
-          font-size: 10.5px;
-          font-weight: 650;
-          cursor: pointer;
-        }
-
-        .csb-primary-button {
-          border: 1px solid #0c62f2;
-          background: #0c62f2;
-          color: #fff;
-        }
-
-        .csb-primary-button:hover {
-          border-color: #0a56d5;
-          background: #0a56d5;
-        }
-
-        .csb-secondary-button {
-          border: 1px solid #d4d9df;
-          background: #fff;
-          color: #30363d;
-        }
-
-        .csb-link-button {
-          border: 0;
-          background: transparent;
-          color: #0c62f2;
-        }
-
-        .csb-primary-button:disabled,
-        .csb-secondary-button:disabled,
-        .csb-link-button:disabled {
-          opacity: .5;
-          cursor: default;
-        }
-
-        .csb-bulk-progress {
-          padding: 10px 14px;
-          border-bottom: 1px solid #d8e5f8;
-          background: #f8fbff;
-          color: #42628d;
-          font-size: 10.5px;
-        }
-
-        .csb-table-header,
-        .csb-table-row {
-          display: grid;
-          grid-template-columns:
-            38px
-            minmax(330px, 2.4fr)
-            118px
-            108px
-            90px
-            125px
-            96px;
-          gap: 14px;
-          align-items: center;
-        }
-
-        .csb-table-header {
-          position: sticky;
-          top: 0;
-          z-index: 3;
-          min-height: 40px;
-          padding: 0 14px;
-          border-bottom: 1px solid #dfe5ec;
-          background: rgba(255, 255, 255, .98);
-          color: #7b8590;
-          font-size: 9px;
-          font-weight: 720;
-          letter-spacing: .055em;
-          text-transform: uppercase;
-        }
-
-        .csb-table-header--right {
-          text-align: right;
-        }
-
-        .csb-table-row {
-          min-height: 72px;
-          padding: 12px 14px;
-          border-bottom: 1px solid #edf0f3;
-          transition: background .12s ease;
-        }
-
-        .csb-table-row:last-child {
-          border-bottom: 0;
-        }
-
-        .csb-table-row:hover {
-          background: #fbfdff;
-        }
-
-        .csb-table-row--selected {
-          background: #f7faff;
-          box-shadow: inset 3px 0 0 #0c62f2;
-        }
-
-        .csb-table-row--warning {
-          background: #fffdf7;
-        }
-
-        .csb-check-cell {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          min-height: 24px;
-        }
-
-        .csb-checkbox {
-          width: 15px;
-          height: 15px;
-          accent-color: #0c62f2;
-          cursor: pointer;
-        }
-
-        .csb-bundle-cell {
-          min-width: 0;
-        }
-
-        .csb-base-title {
-          overflow: hidden;
-          margin-bottom: 3px;
-          color: #202223;
-          font-size: 12.5px;
-          line-height: 1.35;
-          font-weight: 680;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-        }
-
-        .csb-monitor-title {
-          overflow: hidden;
-          color: #66717d;
-          font-size: 10.5px;
-          line-height: 1.35;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-        }
-
-        .csb-row-warning {
-          margin-top: 5px;
-          color: #8a5a00;
-          font-size: 9.5px;
-          line-height: 1.35;
-        }
-
-        .csb-number {
-          color: #202223;
-          font-size: 11.5px;
-          font-weight: 650;
-          text-align: right;
-          white-space: nowrap;
-        }
-
-        .csb-saving {
-          color: #26733e;
-          font-size: 11px;
-          font-weight: 650;
-          text-align: right;
-          white-space: nowrap;
-        }
-
-        .csb-muted {
-          color: #8a939d;
-          font-size: 10.5px;
-        }
-
-        .csb-status {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          min-height: 25px;
-          padding: 4px 8px;
-          border-radius: 999px;
-          font-size: 9.5px;
-          font-weight: 680;
-          white-space: nowrap;
-        }
-
-        .csb-status--create {
-          background: #eef5ff;
-          color: #0c62f2;
-        }
-
-        .csb-status--published {
-          background: #eaf8ee;
-          color: #26733e;
-        }
-
-        .csb-status--unpublished {
-          background: #eef0f3;
-          color: #59636e;
-        }
-
-        .csb-status--warning {
-          background: #fff1d7;
-          color: #835800;
-        }
-
-        .csb-status--product-active {
-          background: #eaf8ee;
-          color: #26733e;
-        }
-
-        .csb-status--product-draft {
-          background: #eef0f3;
-          color: #59636e;
-        }
-
-        .csb-status--product-archived {
-          background: #f3f0f0;
-          color: #765454;
-        }
-
-        .csb-status-stack {
-          display: flex;
-          align-items: flex-start;
           flex-direction: column;
-          gap: 4px;
+          gap: 12px;
+          padding-bottom: 24px;
         }
 
-        .csb-status-note {
-          color: #8a939d;
-          font-size: 9px;
-          line-height: 1.25;
+        .csb-native-view-scroll {
+          overflow-x: auto;
+          scrollbar-width: none;
         }
 
-        .csb-row-action {
-          display: flex;
-          justify-content: flex-end;
+        .csb-native-view-scroll::-webkit-scrollbar {
+          display: none;
         }
 
-        .csb-row-action button,
-        .csb-row-action a {
-          color: #0c62f2;
-          font-size: 10.5px;
-          font-weight: 620;
-          text-decoration: none;
+        .csb-native-selection {
+          padding: 12px;
+          border-top: 1px solid #e1e3e5;
+          border-bottom: 1px solid #e1e3e5;
+          background: #f6f6f7;
         }
 
-        .csb-excluded-row {
+        .csb-native-selection-grid {
           display: grid;
-          grid-template-columns:
-            38px
-            minmax(330px, 2.4fr)
-            118px
-            108px
-            90px
-            125px
-            96px;
-          gap: 14px;
+          grid-template-columns: minmax(0, 1fr) auto;
+          gap: 12px;
           align-items: center;
-          min-height: 68px;
-          padding: 12px 14px;
-          border-bottom: 1px solid #edf0f3;
         }
 
-        .csb-empty {
-          padding: 52px 18px;
-          color: #69727d;
-          text-align: center;
+        .csb-native-bundle-title {
+          min-width: 0;
+        }
+
+        .csb-native-bundle-secondary {
+          margin-top: 2px;
+          color: #616161;
           font-size: 12px;
+          line-height: 1.35;
         }
 
-        .csb-footer {
+        .csb-native-warning {
+          margin-top: 4px;
+          color: #8a5a00;
+          font-size: 11px;
+          line-height: 1.35;
+        }
+
+        .csb-native-statuses {
           display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 14px;
-          min-height: 48px;
-          padding: 8px 14px;
-          border-top: 1px solid #edf0f3;
-          background: #fbfcfd;
-          border-radius: 0 0 16px 16px;
-          color: #69727d;
-          font-size: 10.5px;
-        }
-
-        .csb-pagination {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-
-        .csb-pagination button {
-          min-height: 30px;
-          padding: 4px 9px;
-          border: 1px solid #d4d9df;
-          border-radius: 8px;
-          background: #fff;
-          color: #30363d;
-          font: inherit;
-          font-size: 10px;
-          cursor: pointer;
-        }
-
-        .csb-pagination button:disabled {
-          opacity: .45;
-          cursor: default;
+          flex-wrap: wrap;
+          gap: 4px;
         }
 
         .csb-drawer-backdrop {
@@ -2096,7 +1671,6 @@ export default function Bundles() {
           inset: 0;
           z-index: 999;
           background: rgba(24, 29, 35, .3);
-          backdrop-filter: blur(1px);
         }
 
         .csb-drawer {
@@ -2107,9 +1681,9 @@ export default function Bundles() {
           z-index: 1000;
           width: min(460px, 94vw);
           overflow-y: auto;
-          border-left: 1px solid #dfe5ec;
+          border-left: 1px solid #e1e3e5;
           background: #fff;
-          box-shadow: -18px 0 42px rgba(31, 33, 36, .14);
+          box-shadow: -12px 0 32px rgba(31, 33, 36, .12);
         }
 
         .csb-drawer__header {
@@ -2119,20 +1693,17 @@ export default function Bundles() {
           display: flex;
           align-items: flex-start;
           justify-content: space-between;
-          gap: 18px;
-          padding: 18px;
-          border-bottom: 1px solid #edf0f3;
-          background: rgba(255, 255, 255, .98);
-          backdrop-filter: blur(8px);
+          gap: 16px;
+          padding: 16px;
+          border-bottom: 1px solid #e1e3e5;
+          background: #fff;
         }
 
         .csb-drawer__eyebrow {
-          margin-bottom: 5px;
-          color: #0c62f2;
-          font-size: 9px;
-          font-weight: 740;
-          letter-spacing: .07em;
-          text-transform: uppercase;
+          margin-bottom: 4px;
+          color: #616161;
+          font-size: 11px;
+          font-weight: 600;
         }
 
         .csb-drawer__title {
@@ -2140,41 +1711,30 @@ export default function Bundles() {
           color: #202223;
           font-size: 16px;
           line-height: 1.35;
-          font-weight: 720;
-        }
-
-        .csb-close {
-          width: 32px;
-          height: 32px;
-          flex: 0 0 auto;
-          border: 1px solid #dfe5ec;
-          border-radius: 8px;
-          background: #fff;
-          color: #53606d;
-          font-size: 18px;
-          line-height: 1;
-          cursor: pointer;
+          font-weight: 650;
         }
 
         .csb-drawer__body {
-          padding: 18px;
+          padding: 16px;
         }
 
         .csb-detail-section {
           margin-bottom: 20px;
           padding-bottom: 18px;
-          border-bottom: 1px solid #edf0f3;
+          border-bottom: 1px solid #e1e3e5;
         }
 
         .csb-detail-section:last-child {
+          margin-bottom: 0;
+          padding-bottom: 0;
           border-bottom: 0;
         }
 
         .csb-detail-heading {
           margin: 0 0 10px;
           color: #202223;
-          font-size: 11px;
-          font-weight: 720;
+          font-size: 12px;
+          font-weight: 650;
         }
 
         .csb-detail-row {
@@ -2182,9 +1742,9 @@ export default function Bundles() {
           justify-content: space-between;
           gap: 16px;
           margin-bottom: 8px;
-          color: #68737f;
-          font-size: 10.5px;
-          line-height: 1.45;
+          color: #616161;
+          font-size: 12px;
+          line-height: 1.4;
         }
 
         .csb-detail-row:last-child {
@@ -2195,13 +1755,13 @@ export default function Bundles() {
           max-width: 65%;
           color: #202223;
           text-align: right;
-          font-weight: 650;
+          font-weight: 600;
           overflow-wrap: anywhere;
         }
 
         .csb-detail-component {
-          padding: 10px 0;
-          border-bottom: 1px solid #f0f2f4;
+          padding: 9px 0;
+          border-bottom: 1px solid #f1f1f1;
         }
 
         .csb-detail-component:last-child {
@@ -2211,16 +1771,14 @@ export default function Bundles() {
         .csb-detail-component__role {
           margin-bottom: 3px;
           color: #8a939d;
-          font-size: 9px;
-          font-weight: 700;
-          text-transform: uppercase;
+          font-size: 10px;
+          font-weight: 600;
         }
 
         .csb-detail-component__name {
           color: #202223;
-          font-size: 11px;
+          font-size: 12px;
           line-height: 1.4;
-          font-weight: 620;
         }
 
         .csb-detail-actions {
@@ -2230,226 +1788,19 @@ export default function Bundles() {
         }
 
         .csb-detail-actions form,
-        .csb-detail-actions button,
-        .csb-detail-actions a {
+        .csb-detail-actions s-button,
+        .csb-detail-actions s-link {
           width: 100%;
         }
 
-        .csb-detail-link {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          min-height: 36px;
-          border: 1px solid #d4d9df;
-          border-radius: 8px;
-          background: #fff;
-          color: #0c62f2;
-          font-size: 10.5px;
-          font-weight: 650;
-          text-decoration: none;
-        }
-
-        @media (max-width: 1180px) {
-          .csb-table-header {
-            display: none;
-          }
-
-          .csb-table-row,
-          .csb-excluded-row {
-            grid-template-columns:
-              34px
-              minmax(0, 1.8fr)
-              1fr
-              1fr;
-          }
-
-          .csb-table-row > :nth-child(5),
-          .csb-table-row > :nth-child(7),
-          .csb-excluded-row > :nth-child(5),
-          .csb-excluded-row > :nth-child(7) {
-            grid-column: auto;
-          }
-        }
-
         @media (max-width: 760px) {
-          .csb-page {
+          .csb-native-page {
+            gap: 10px;
             padding-bottom: 16px;
           }
 
-          .csb-hero {
-            align-items: stretch;
-            flex-direction: column;
-            gap: 10px;
-            margin-bottom: 14px;
-          }
-
-          .csb-title {
-            font-size: 19px;
-          }
-
-          .csb-description {
-            font-size: 11.5px;
-          }
-
-          .csb-hero-meta {
-            display: grid;
+          .csb-native-selection-grid {
             grid-template-columns: 1fr;
-            gap: 5px;
-            justify-content: stretch;
-            font-size: 10px;
-          }
-
-          .csb-index {
-            margin-inline: -2px;
-            border-radius: 10px;
-          }
-
-          .csb-views {
-            gap: 4px;
-            padding: 9px 10px;
-            scrollbar-width: none;
-            scroll-snap-type: x proximity;
-          }
-
-          .csb-views::-webkit-scrollbar {
-            display: none;
-          }
-
-          .csb-view {
-            min-height: 38px;
-            padding: 7px 11px;
-            scroll-snap-align: start;
-          }
-
-          .csb-controls {
-            grid-template-columns: 1fr;
-            gap: 8px;
-            padding: 10px;
-          }
-
-          .csb-control {
-            height: 42px;
-            font-size: 12px;
-          }
-
-          .csb-selection-bar {
-            position: sticky;
-            bottom: 0;
-            z-index: 20;
-            align-items: stretch;
-            flex-direction: column;
-            gap: 8px;
-            padding: 10px;
-            box-shadow: 0 -3px 10px rgba(31, 33, 36, .07);
-          }
-
-          .csb-primary-button,
-          .csb-secondary-button {
-            min-height: 42px;
-          }
-
-          .csb-bulk-progress {
-            padding: 10px;
-          }
-
-          .csb-table-row,
-          .csb-excluded-row {
-            grid-template-columns:
-              24px
-              minmax(0, 1fr);
-            gap: 8px 10px;
-            min-height: 0;
-            padding: 13px 10px;
-          }
-
-          .csb-table-row > :nth-child(n+3),
-          .csb-excluded-row > :nth-child(n+3) {
-            grid-column: 2;
-            display: grid;
-            grid-template-columns:
-              82px
-              minmax(0, 1fr);
-            gap: 8px;
-            align-items: center;
-            text-align: left;
-          }
-
-          .csb-table-row > :nth-child(3)::before {
-            content: "Precio";
-          }
-
-          .csb-table-row > :nth-child(4)::before {
-            content: "Ahorro";
-          }
-
-          .csb-table-row > :nth-child(5)::before,
-          .csb-excluded-row > :nth-child(5)::before {
-            content: "Disponibles";
-          }
-
-          .csb-table-row > :nth-child(6)::before,
-          .csb-excluded-row > :nth-child(6)::before {
-            content: "Estado";
-          }
-
-          .csb-table-row > :nth-child(7)::before,
-          .csb-excluded-row > :nth-child(7)::before {
-            content: "Acción";
-          }
-
-          .csb-table-row > :nth-child(n+3)::before,
-          .csb-excluded-row > :nth-child(n+3)::before {
-            color: #8a939d;
-            font-size: 9px;
-            font-weight: 700;
-            letter-spacing: .035em;
-            text-transform: uppercase;
-          }
-
-          .csb-excluded-row > :nth-child(3),
-          .csb-excluded-row > :nth-child(4) {
-            display: none;
-          }
-
-          .csb-base-title {
-            white-space: normal;
-            font-size: 12px;
-          }
-
-          .csb-monitor-title {
-            white-space: normal;
-            font-size: 10.5px;
-          }
-
-          .csb-number,
-          .csb-saving {
-            text-align: left;
-          }
-
-          .csb-row-action {
-            justify-content: flex-start;
-          }
-
-          .csb-row-action .csb-link-button {
-            min-height: 36px;
-            padding: 5px 0;
-            text-align: left;
-          }
-
-          .csb-footer {
-            align-items: stretch;
-            flex-direction: column;
-            gap: 8px;
-            padding: 10px;
-          }
-
-          .csb-pagination {
-            justify-content: space-between;
-          }
-
-          .csb-pagination button {
-            min-height: 38px;
-            padding-inline: 12px;
           }
 
           .csb-drawer {
@@ -2458,279 +1809,183 @@ export default function Bundles() {
             border-left: 0;
           }
 
-          .csb-drawer__header {
-            padding: 14px;
-          }
-
+          .csb-drawer__header,
           .csb-drawer__body {
             padding: 14px;
-          }
-
-          .csb-close {
-            width: 38px;
-            height: 38px;
-          }
-
-          .csb-detail-actions button,
-          .csb-detail-actions a {
-            min-height: 42px;
           }
         }
       `}</style>
 
-      <div className="csb-page">
+      <div className="csb-native-page">
 
-        <div className="csb-hero">
+        <s-section>
+          <s-stack gap="small">
 
-          <div>
+            <s-paragraph>
+              Revisa propuestas, estado del producto en Shopify y publicación en Tienda online.
+            </s-paragraph>
 
-            <h2 className="csb-title">
-              Bundles
-            </h2>
+            <s-stack
+              direction="inline"
+              gap="small"
+              alignItems="center"
+            >
+              <s-text tone="neutral">
+                Canal
+              </s-text>
 
-            <p className="csb-description">
-              Revisa las propuestas y distingue el estado del producto en Shopify de su publicación en Tienda online.
-            </p>
-
-          </div>
-
-          <div className="csb-hero-meta">
-
-            <span className="csb-meta-item">
-              Canal:{" "}
-              <strong>
+              <s-badge tone="info">
                 Tienda online
-              </strong>
-            </span>
+              </s-badge>
 
-            <span className="csb-meta-item">
-              Precio:{" "}
-              <strong>
+              <s-text tone="neutral">
+                Precio
+              </s-text>
+
+              <s-text>
                 {data.runtime.priceConfig.mode ===
-                "percentage"
-                  ? `${data.runtime.priceConfig.percentage}% sobre el PC`
-                  : data.runtime.priceConfig.mode ===
-                      "fixed"
-                    ? `${formatPrice(
-                        data.runtime.priceConfig.fixedAmount,
-                        data.catalog.currencyCode,
-                      )} sobre el PC`
-                    : "Sin descuento"}
-              </strong>
-            </span>
+                    "percentage"
+                      ? `${data.runtime.priceConfig.percentage}% sobre el PC`
+                      : data.runtime.priceConfig.mode ===
+                          "fixed"
+                        ? `${formatPrice(
+                            data.runtime.priceConfig.fixedAmount,
+                            data.catalog.currencyCode,
+                          )} sobre el PC`
+                        : "Sin descuento"}
+              </s-text>
+            </s-stack>
 
-          </div>
-
-        </div>
+          </s-stack>
+        </s-section>
 
         {systemErrors.length >
           0 && (
-          <div className="csb-error-banner">
-            <strong>
-              No fue posible completar toda la lectura de Shopify.
-            </strong>
-            {" "}
+          <s-banner
+            heading="No fue posible completar toda la lectura de Shopify"
+            tone="critical"
+          >
             {systemErrors.join(
-              " | ",
+              " · ",
             )}
-          </div>
+          </s-banner>
         )}
 
         {state.issues.length >
           0 && (
-          <div className="csb-warning-banner">
-            <strong>
-              Hay configuraciones que requieren revisión:
-            </strong>
-            <ul>
-              {state.issues.map(
-                (issue) => (
-                  <li key={issue}>
-                    {issue}
-                  </li>
-                ),
-              )}
-            </ul>
-          </div>
+          <s-banner
+            heading="Hay configuraciones que requieren revisión"
+            tone="warning"
+          >
+            {state.issues.join(
+              " · ",
+            )}
+          </s-banner>
         )}
 
-        <div className="csb-index">
+        <s-section
+          padding="none"
+          accessibilityLabel="Gestión de Bundles"
+        >
 
-          <div className="csb-views">
+          <s-box padding="small">
 
-            {([
-              [
-                "create",
-                "Por crear",
-                createCount,
-              ],
-              [
-                "published",
-                "Publicados",
-                publishedCount,
-              ],
-              [
-                "unpublished",
-                "Sin publicar",
-                unpublishedCount,
-              ],
-              [
-                "excluded",
-                "Excluidos",
-                excludedCount,
-              ],
-            ] as Array<
-              [
-                BundleView,
-                string,
-                number,
-              ]
-            >).map(
-              (
-                [
-                  value,
-                  label,
-                  count,
-                ],
-              ) => (
-                <button
-                  key={value}
-                  type="button"
-                  className={
-                    view ===
-                    value
-                      ? "csb-view csb-view--active"
-                      : "csb-view"
-                  }
-                  onClick={() =>
-                    setView(
+            <div className="csb-native-view-scroll">
+
+              <s-stack
+                direction="inline"
+                gap="small"
+              >
+
+                {([
+                  [
+                    "create",
+                    "Por crear",
+                    createCount,
+                  ],
+                  [
+                    "published",
+                    "Publicados",
+                    publishedCount,
+                  ],
+                  [
+                    "unpublished",
+                    "Sin publicar",
+                    unpublishedCount,
+                  ],
+                  [
+                    "excluded",
+                    "Excluidos",
+                    excludedCount,
+                  ],
+                ] as Array<
+                  [
+                    BundleView,
+                    string,
+                    number,
+                  ]
+                >).map(
+                  (
+                    [
                       value,
-                    )
-                  }
-                >
-                  {label}{" "}
-                  {count}
-                </button>
-              ),
-            )}
-
-          </div>
-
-          <div className="csb-controls">
-
-            <input
-              className="csb-control"
-              type="search"
-              placeholder="Buscar por modelo o SKU..."
-              value={
-                search
-              }
-              onChange={(event) =>
-                setSearch(
-                  event.target.value,
-                )
-              }
-            />
-
-            <select
-              className="csb-control"
-              value={
-                templateFilter
-              }
-              disabled={
-                view ===
-                "excluded"
-              }
-              onChange={(event) =>
-                setTemplateFilter(
-                  event.target.value,
-                )
-              }
-            >
-              <option value="all">
-                Todos los tipos de Bundles
-              </option>
-
-              {state.summaries
-                .filter(
-                  (summary) =>
-                    summary.enabled,
-                )
-                .map(
-                  (summary) => (
-                    <option
-                      key={
-                        summary.templateId
+                      label,
+                      count,
+                    ],
+                  ) => (
+                    <s-button
+                      key={value}
+                      variant={
+                        view ===
+                        value
+                          ? "primary"
+                          : "secondary"
                       }
-                      value={
-                        summary.templateId
+                      onClick={() =>
+                        setView(
+                          value,
+                        )
                       }
                     >
-                      {
-                        summary.templateName
-                      }
-                    </option>
+                      {label}{" "}
+                      {count}
+                    </s-button>
                   ),
                 )}
-            </select>
 
-            <select
-              className="csb-control"
-              value={
-                sortMode
-              }
-              disabled={
-                view ===
-                "excluded"
-              }
-              onChange={(event) =>
-                setSortMode(
-                  event.target
-                    .value as BundleSort,
-                )
-              }
-            >
-              <option value="stock_desc">
-                Mayor disponibilidad
-              </option>
-              <option value="price_asc">
-                Menor precio
-              </option>
-              <option value="savings_desc">
-                Mayor ahorro
-              </option>
-            </select>
+              </s-stack>
 
-          </div>
+            </div>
+
+          </s-box>
 
           {selectedNewCandidateIds.length >
             0 && (
-            <div className="csb-selection-bar">
+            <div className="csb-native-selection">
 
-              <div className="csb-selection-info">
-                <strong>
+              <div className="csb-native-selection-grid">
+
+                <s-text>
                   {
                     selectedNewCandidateIds.length
-                  }
-                </strong>
-                {" "}
-                propuesta(s) seleccionada(s)
-              </div>
+                  }{" "}
+                  propuesta(s) seleccionada(s)
+                </s-text>
 
-              <button
-                type="button"
-                className="csb-primary-button"
-                disabled={
-                  working
-                }
-                onClick={
-                  startBulkCreation
-                }
-              >
-                {bulkRunning
-                  ? "Creando borradores..."
-                  : `Crear borradores (${selectedNewCandidateIds.length})`}
-              </button>
+                <s-button
+                  variant="primary"
+                  disabled={
+                    working
+                  }
+                  onClick={
+                    startBulkCreation
+                  }
+                >
+                  {bulkRunning
+                    ? "Creando borradores..."
+                    : `Crear borradores (${selectedNewCandidateIds.length})`}
+                </s-button>
+
+              </div>
 
             </div>
           )}
@@ -2738,549 +1993,687 @@ export default function Bundles() {
           {(bulkRunning ||
             bulkResults.length >
               0) && (
-            <div className="csb-bulk-progress">
-
+            <s-banner
+              tone={
+                bulkRunning
+                  ? "info"
+                  : "success"
+              }
+              heading={
+                bulkRunning
+                  ? "Creando Bundles"
+                  : "Proceso terminado"
+              }
+            >
               {bulkRunning
                 ? `Procesando ${bulkResults.length + 1} de ${bulkQueue.length}. Cada propuesta se valida nuevamente antes de crearse.`
-                : `Último proceso: ${bulkResults.filter((item) => item.success).length} creados · ${bulkResults.filter((item) => !item.success && !item.partial).length} omitidos · ${bulkResults.filter((item) => !item.success && item.partial).length} para revisar.`}
-
-            </div>
+                : `${bulkResults.filter((item) => item.success).length} creados · ${bulkResults.filter((item) => !item.success && !item.partial).length} omitidos · ${bulkResults.filter((item) => !item.success && item.partial).length} para revisar.`}
+            </s-banner>
           )}
 
           {view !==
-            "excluded" && (
-            <div className="csb-table-header">
-
-              <div className="csb-check-cell">
-                {view ===
-                  "create" &&
-                  visibleNewCandidateIds.length >
-                    0 && (
-                  <input
-                    className="csb-checkbox"
-                    type="checkbox"
-                    aria-label="Seleccionar propuestas visibles"
-                    checked={
-                      allVisibleNewSelected
-                    }
-                    onChange={
-                      toggleVisibleNewSelection
-                    }
-                    disabled={
-                      working
-                    }
-                  />
-                )}
-              </div>
-
-              <div>
-                Bundles
-              </div>
-
-              <div className="csb-table-header--right">
-                Precio
-              </div>
-
-              <div className="csb-table-header--right">
-                Ahorro
-              </div>
-
-              <div className="csb-table-header--right">
-                Disponibles
-              </div>
-
-              <div>
-                Estado
-              </div>
-
-              <div />
-
-            </div>
-          )}
-
-          {view ===
-            "excluded" && (
-            <div className="csb-table-header">
-
-              <div />
-
-              <div>
-                Producto
-              </div>
-
-              <div />
-
-              <div />
-
-              <div className="csb-table-header--right">
-                Stock
-              </div>
-
-              <div>
-                Estado
-              </div>
-
-              <div />
-
-            </div>
-          )}
-
-          {pagedCandidates.map(
-            (candidate) => {
-              const match =
-                matchByCandidateId.get(
-                  candidate.id,
-                );
-
-              if (
-                !match
-              ) {
-                return null;
+            "excluded" ? (
+            <s-table
+              paginate={
+                filteredCandidates.length >
+                PAGE_SIZE
               }
+              hasPreviousPage={
+                page >
+                1
+              }
+              hasNextPage={
+                page <
+                totalPages
+              }
+              onPreviousPage={() =>
+                setPage(
+                  (
+                    current,
+                  ) =>
+                    Math.max(
+                      1,
+                      current -
+                        1,
+                    ),
+                )
+              }
+              onNextPage={() =>
+                setPage(
+                  (
+                    current,
+                  ) =>
+                    Math.min(
+                      totalPages,
+                      current +
+                        1,
+                    ),
+                )
+              }
+              paginationLabel={`${resultCount} resultados · Página ${page} de ${totalPages}`}
+            >
 
-              const price =
-                calculateTemplateCandidatePrice(
-                  candidate,
-                  data.runtime.priceConfig,
-                );
+              <s-query-container slot="filters">
 
-              const selected =
-                selectedCandidateIds.has(
-                  candidate.id,
-                );
-
-              return (
-                <div
-                  key={
-                    candidate.id
-                  }
-                  className={[
-                    "csb-table-row",
-                    selected
-                      ? "csb-table-row--selected"
-                      : "",
-                    isReviewStatus(
-                      match.status,
-                    )
-                      ? "csb-table-row--warning"
-                      : "",
-                  ]
-                    .filter(
-                      Boolean,
-                    )
-                    .join(
-                      " ",
-                    )}
+                <s-grid
+                  gridTemplateColumns="@container (inline-size > 760px) minmax(0, 1fr) minmax(190px, 250px) minmax(170px, 220px), 1fr"
+                  gap="small"
                 >
 
-                  <div className="csb-check-cell">
-                    {match.status ===
-                      "new" && (
-                      <input
-                        className="csb-checkbox"
-                        type="checkbox"
-                        aria-label="Seleccionar propuesta de Bundles"
-                        checked={
-                          selected
-                        }
-                        disabled={
-                          working
-                        }
-                        onChange={() =>
-                          toggleCandidateSelection(
-                            candidate.id,
-                          )
-                        }
-                      />
-                    )}
-                  </div>
-
-                  <div className="csb-bundle-cell">
-
-                    <div className="csb-base-title">
-                      {
-                        candidate
-                          .baseProduct
-                          .title
-                      }
-                    </div>
-
-                    <div className="csb-monitor-title">
-                      {
-                        candidate
-                          .monitor
-                          .title
-                      }
-                    </div>
-
-                    {isReviewStatus(
-                      match.status,
-                    ) && (
-                      <div className="csb-row-warning">
-                        {
-                          match.message
-                        }
-                      </div>
-                    )}
-
-                  </div>
-
-                  <div className="csb-number">
-                    {formatPrice(
-                      price.finalPrice,
-                      data.catalog.currencyCode,
-                    )}
-                  </div>
-
-                  <div className="csb-saving">
-                    {price.savings >
-                      0
-                      ? formatPrice(
-                          price.savings,
-                          data.catalog.currencyCode,
-                        )
-                      : "—"}
-                  </div>
-
-                  <div className="csb-number">
-                    {
-                      getTemplateCandidateStock(
-                        candidate,
+                  <s-text-field
+                    label="Buscar Bundles"
+                    labelAccessibilityVisibility="exclusive"
+                    icon="search"
+                    placeholder="Buscar por modelo o SKU"
+                    value={
+                      search
+                    }
+                    onInput={(event) =>
+                      setSearch(
+                        event.currentTarget.value,
                       )
                     }
-                  </div>
+                  />
 
-                  <div>
-                    {isExistingStatus(
-                      match.status,
-                    ) &&
-                    match.existingProduct ? (
-                      <div className="csb-status-stack">
+                  <s-select
+                    label="Tipo de Bundles"
+                    labelAccessibilityVisibility="exclusive"
+                    value={
+                      templateFilter
+                    }
+                    onChange={(event) =>
+                      setTemplateFilter(
+                        event.currentTarget.value,
+                      )
+                    }
+                  >
+                    <s-option value="all">
+                      Todos los tipos de Bundles
+                    </s-option>
 
-                        <span
-                          className={
-                            getProductStatusClass(
-                              match
-                                .existingProduct
-                                .status,
-                            )
-                          }
-                        >
-                          {
-                            getProductStatusLabel(
-                              match
-                                .existingProduct
-                                .status,
-                            )
-                          }
-                        </span>
+                    {state.summaries
+                      .filter(
+                        (summary) =>
+                          summary.enabled,
+                      )
+                      .map(
+                        (summary) => (
+                          <s-option
+                            key={
+                              summary.templateId
+                            }
+                            value={
+                              summary.templateId
+                            }
+                          >
+                            {
+                              summary.templateName
+                            }
+                          </s-option>
+                        ),
+                      )}
+                  </s-select>
 
-                        <span
-                          className={
-                            match
-                              .existingProduct
-                              .publishedAt
-                              ? "csb-status csb-status--published"
-                              : "csb-status csb-status--unpublished"
-                          }
-                        >
-                          {match
-                            .existingProduct
-                            .publishedAt
-                            ? "Tienda online"
-                            : "Sin publicar"}
-                        </span>
+                  <s-select
+                    label="Ordenar Bundles"
+                    labelAccessibilityVisibility="exclusive"
+                    value={
+                      sortMode
+                    }
+                    onChange={(event) =>
+                      setSortMode(
+                        event.currentTarget
+                          .value as BundleSort,
+                      )
+                    }
+                  >
+                    <s-option value="stock_desc">
+                      Mayor disponibilidad
+                    </s-option>
+                    <s-option value="price_asc">
+                      Menor precio
+                    </s-option>
+                    <s-option value="savings_desc">
+                      Mayor ahorro
+                    </s-option>
+                  </s-select>
 
-                      </div>
-                    ) : (
-                      <span
-                        className={
-                          getWorkflowStatusClass(
-                            match.status,
-                            match
-                              .existingProduct
-                              ?.publishedAt,
-                          )
-                        }
-                      >
-                        {
-                          getWorkflowStatusLabel(
-                            match.status,
-                            match
-                              .existingProduct
-                              ?.publishedAt,
-                          )
-                        }
-                      </span>
-                    )}
-                  </div>
+                </s-grid>
 
-                  <div className="csb-row-action">
-                    <button
-                      type="button"
-                      className="csb-link-button"
-                      onClick={() =>
-                        setDetailCandidateId(
-                          candidate.id,
-                        )
-                      }
+              </s-query-container>
+
+              <s-table-header-row>
+
+                <s-table-header listSlot="primary">
+                  {view ===
+                    "create" &&
+                    visibleNewCandidateIds.length >
+                      0 ? (
+                    <s-stack
+                      direction="inline"
+                      gap="small"
+                      alignItems="center"
                     >
-                      Ver detalle
-                    </button>
-                  </div>
-
-                </div>
-              );
-            },
-          )}
-
-          {view ===
-            "create" &&
-            visibleMultiVariant.map(
-              (product) => (
-                <div
-                  className="csb-table-row csb-table-row--warning"
-                  key={
-                    product.id
-                  }
-                >
-
-                  <div className="csb-check-cell" />
-
-                  <div className="csb-bundle-cell">
-                    <div className="csb-base-title">
-                      {
-                        product.title
-                      }
-                    </div>
-                    <div className="csb-row-warning">
-                      Tiene múltiples variantes. La creación automática permanece bloqueada.
-                    </div>
-                  </div>
-
-                  <div className="csb-muted">
-                    —
-                  </div>
-
-                  <div className="csb-muted">
-                    —
-                  </div>
-
-                  <div className="csb-number">
-                    {
-                      product.totalInventory
-                    }
-                  </div>
-
-                  <div>
-                    <span className="csb-status csb-status--warning">
-                      Varias variantes
-                    </span>
-                  </div>
-
-                  <div />
-
-                </div>
-              ),
-            )}
-
-          {view ===
-            "excluded" &&
-            visibleManualExcluded.map(
-              (product) => (
-                <div
-                  className="csb-excluded-row"
-                  key={
-                    product.id
-                  }
-                >
-
-                  <div />
-
-                  <div className="csb-bundle-cell">
-                    <div className="csb-base-title">
-                      {
-                        product.title
-                      }
-                    </div>
-                    <div className="csb-monitor-title">
-                      {
-                        getFirstTemplateVariant(
-                          product,
-                        )?.sku ??
-                        "Sin SKU"
-                      }
-                    </div>
-                  </div>
-
-                  <div />
-                  <div />
-
-                  <div className="csb-number">
-                    {
-                      product.totalInventory
-                    }
-                  </div>
-
-                  <div>
-                    <span className="csb-status csb-status--warning">
-                      Excluido manual
-                    </span>
-                  </div>
-
-                  <div className="csb-row-action">
-                    <fetcher.Form method="post">
-                      <input
-                        type="hidden"
-                        name="intent"
-                        value="include"
-                      />
-                      <input
-                        type="hidden"
-                        name="productId"
-                        value={
-                          product.id
+                      <s-checkbox
+                        checked={
+                          allVisibleNewSelected
                         }
-                      />
-                      <button
-                        type="submit"
-                        className="csb-link-button"
+                        onChange={
+                          toggleVisibleNewSelection
+                        }
                         disabled={
                           working
                         }
-                      >
-                        Incluir
-                      </button>
-                    </fetcher.Form>
-                  </div>
+                        accessibilityLabel="Seleccionar propuestas visibles"
+                      />
+                      <s-text>
+                        Bundles
+                      </s-text>
+                    </s-stack>
+                  ) : (
+                    "Bundles"
+                  )}
+                </s-table-header>
 
-                </div>
-              ),
-            )}
-
-          {view ===
-            "excluded" &&
-            visibleAutomaticExcluded.map(
-              (product) => (
-                <div
-                  className="csb-excluded-row"
-                  key={
-                    product.id
-                  }
+                <s-table-header
+                  listSlot="labeled"
+                  format="currency"
                 >
+                  Precio
+                </s-table-header>
 
-                  <div />
+                <s-table-header
+                  listSlot="labeled"
+                  format="currency"
+                >
+                  Ahorro
+                </s-table-header>
 
-                  <div className="csb-bundle-cell">
-                    <div className="csb-base-title">
-                      {
-                        product.title
-                      }
-                    </div>
-                    <div className="csb-monitor-title">
-                      Exclusión automática por producto “Arma a tu medida”.
-                    </div>
-                  </div>
+                <s-table-header
+                  listSlot="labeled"
+                  format="numeric"
+                >
+                  Disponibles
+                </s-table-header>
 
-                  <div />
-                  <div />
+                <s-table-header listSlot="inline">
+                  Estado
+                </s-table-header>
 
-                  <div className="csb-number">
-                    {
-                      product.totalInventory
+                <s-table-header listSlot="secondary">
+                  Acción
+                </s-table-header>
+
+              </s-table-header-row>
+
+              <s-table-body>
+
+                {pagedCandidates.map(
+                  (candidate) => {
+                    const match =
+                      matchByCandidateId.get(
+                        candidate.id,
+                      );
+
+                    if (
+                      !match
+                    ) {
+                      return null;
                     }
-                  </div>
 
-                  <div>
-                    <span className="csb-status csb-status--unpublished">
-                      Automático
-                    </span>
-                  </div>
+                    const price =
+                      calculateTemplateCandidatePrice(
+                        candidate,
+                        data.runtime.priceConfig,
+                      );
 
-                  <div />
+                    const selected =
+                      selectedCandidateIds.has(
+                        candidate.id,
+                      );
 
-                </div>
-              ),
-            )}
+                    return (
+                      <s-table-row
+                        key={
+                          candidate.id
+                        }
+                        selected={
+                          selected
+                        }
+                      >
+
+                        <s-table-cell>
+
+                          <s-stack
+                            direction="inline"
+                            gap="small"
+                            alignItems="center"
+                          >
+
+                            {match.status ===
+                              "new" && (
+                              <s-checkbox
+                                checked={
+                                  selected
+                                }
+                                disabled={
+                                  working
+                                }
+                                onChange={() =>
+                                  toggleCandidateSelection(
+                                    candidate.id,
+                                  )
+                                }
+                                accessibilityLabel="Seleccionar propuesta de Bundles"
+                              />
+                            )}
+
+                            <div className="csb-native-bundle-title">
+
+                              <s-text>
+                                {
+                                  candidate
+                                    .baseProduct
+                                    .title
+                                }
+                              </s-text>
+
+                              <div className="csb-native-bundle-secondary">
+                                {
+                                  candidate
+                                    .monitor
+                                    .title
+                                }
+                              </div>
+
+                              {isReviewStatus(
+                                match.status,
+                              ) && (
+                                <div className="csb-native-warning">
+                                  {
+                                    match.message
+                                  }
+                                </div>
+                              )}
+
+                            </div>
+
+                          </s-stack>
+
+                        </s-table-cell>
+
+                        <s-table-cell>
+                          {formatPrice(
+                            price.finalPrice,
+                            data.catalog.currencyCode,
+                          )}
+                        </s-table-cell>
+
+                        <s-table-cell>
+                          {price.savings >
+                            0
+                            ? formatPrice(
+                                price.savings,
+                                data.catalog.currencyCode,
+                              )
+                            : "—"}
+                        </s-table-cell>
+
+                        <s-table-cell>
+                          {
+                            getTemplateCandidateStock(
+                              candidate,
+                            )
+                          }
+                        </s-table-cell>
+
+                        <s-table-cell>
+
+                          {isExistingStatus(
+                            match.status,
+                          ) &&
+                          match.existingProduct ? (
+                            <div className="csb-native-statuses">
+
+                              <s-badge
+                                tone={
+                                  getProductStatusTone(
+                                    match
+                                      .existingProduct
+                                      .status,
+                                  )
+                                }
+                              >
+                                {
+                                  getProductStatusLabel(
+                                    match
+                                      .existingProduct
+                                      .status,
+                                  )
+                                }
+                              </s-badge>
+
+                              <s-badge
+                                tone={
+                                  match
+                                    .existingProduct
+                                    .publishedAt
+                                    ? "success"
+                                    : "neutral"
+                                }
+                              >
+                                {match
+                                  .existingProduct
+                                  .publishedAt
+                                  ? "Tienda online"
+                                  : "Sin publicar"}
+                              </s-badge>
+
+                            </div>
+                          ) : (
+                            <s-badge
+                              tone={
+                                getWorkflowStatusTone(
+                                  match.status,
+                                  match
+                                    .existingProduct
+                                    ?.publishedAt,
+                                )
+                              }
+                            >
+                              {
+                                getWorkflowStatusLabel(
+                                  match.status,
+                                  match
+                                    .existingProduct
+                                    ?.publishedAt,
+                                )
+                              }
+                            </s-badge>
+                          )}
+
+                        </s-table-cell>
+
+                        <s-table-cell>
+
+                          <s-button
+                            variant="tertiary"
+                            onClick={() =>
+                              setDetailCandidateId(
+                                candidate.id,
+                              )
+                            }
+                          >
+                            Ver detalle
+                          </s-button>
+
+                        </s-table-cell>
+
+                      </s-table-row>
+                    );
+                  },
+                )}
+
+                {view ===
+                  "create" &&
+                  visibleMultiVariant.map(
+                    (product) => (
+                      <s-table-row
+                        key={
+                          product.id
+                        }
+                      >
+
+                        <s-table-cell>
+
+                          <s-stack gap="small">
+
+                            <s-text>
+                              {
+                                product.title
+                              }
+                            </s-text>
+
+                            <s-text tone="warning">
+                              Tiene múltiples variantes. La creación automática permanece bloqueada.
+                            </s-text>
+
+                          </s-stack>
+
+                        </s-table-cell>
+
+                        <s-table-cell>
+                          —
+                        </s-table-cell>
+
+                        <s-table-cell>
+                          —
+                        </s-table-cell>
+
+                        <s-table-cell>
+                          {
+                            product.totalInventory
+                          }
+                        </s-table-cell>
+
+                        <s-table-cell>
+                          <s-badge tone="warning">
+                            Varias variantes
+                          </s-badge>
+                        </s-table-cell>
+
+                        <s-table-cell />
+
+                      </s-table-row>
+                    ),
+                  )}
+
+              </s-table-body>
+
+            </s-table>
+          ) : (
+            <s-table>
+
+              <s-text-field
+                slot="filters"
+                label="Buscar productos excluidos"
+                labelAccessibilityVisibility="exclusive"
+                icon="search"
+                placeholder="Buscar por producto o SKU"
+                value={
+                  search
+                }
+                onInput={(event) =>
+                  setSearch(
+                    event.currentTarget.value,
+                  )
+                }
+              />
+
+              <s-table-header-row>
+
+                <s-table-header listSlot="primary">
+                  Producto
+                </s-table-header>
+
+                <s-table-header
+                  listSlot="labeled"
+                  format="numeric"
+                >
+                  Stock
+                </s-table-header>
+
+                <s-table-header listSlot="inline">
+                  Estado
+                </s-table-header>
+
+                <s-table-header listSlot="secondary">
+                  Acción
+                </s-table-header>
+
+              </s-table-header-row>
+
+              <s-table-body>
+
+                {visibleManualExcluded.map(
+                  (product) => (
+                    <s-table-row
+                      key={
+                        product.id
+                      }
+                    >
+
+                      <s-table-cell>
+
+                        <s-stack gap="small">
+
+                          <s-text>
+                            {
+                              product.title
+                            }
+                          </s-text>
+
+                          <s-text tone="neutral">
+                            {
+                              getFirstTemplateVariant(
+                                product,
+                              )?.sku ??
+                              "Sin SKU"
+                            }
+                          </s-text>
+
+                        </s-stack>
+
+                      </s-table-cell>
+
+                      <s-table-cell>
+                        {
+                          product.totalInventory
+                        }
+                      </s-table-cell>
+
+                      <s-table-cell>
+                        <s-badge tone="warning">
+                          Excluido manual
+                        </s-badge>
+                      </s-table-cell>
+
+                      <s-table-cell>
+
+                        <fetcher.Form method="post">
+
+                          <input
+                            type="hidden"
+                            name="intent"
+                            value="include"
+                          />
+
+                          <input
+                            type="hidden"
+                            name="productId"
+                            value={
+                              product.id
+                            }
+                          />
+
+                          <s-button
+                            type="submit"
+                            variant="tertiary"
+                            disabled={
+                              working
+                            }
+                          >
+                            Incluir
+                          </s-button>
+
+                        </fetcher.Form>
+
+                      </s-table-cell>
+
+                    </s-table-row>
+                  ),
+                )}
+
+                {visibleAutomaticExcluded.map(
+                  (product) => (
+                    <s-table-row
+                      key={
+                        product.id
+                      }
+                    >
+
+                      <s-table-cell>
+
+                        <s-stack gap="small">
+
+                          <s-text>
+                            {
+                              product.title
+                            }
+                          </s-text>
+
+                          <s-text tone="neutral">
+                            Exclusión automática por producto “Arma a tu medida”.
+                          </s-text>
+
+                        </s-stack>
+
+                      </s-table-cell>
+
+                      <s-table-cell>
+                        {
+                          product.totalInventory
+                        }
+                      </s-table-cell>
+
+                      <s-table-cell>
+                        <s-badge tone="neutral">
+                          Automático
+                        </s-badge>
+                      </s-table-cell>
+
+                      <s-table-cell />
+
+                    </s-table-row>
+                  ),
+                )}
+
+              </s-table-body>
+
+            </s-table>
+          )}
 
           {resultCount ===
             0 && (
-            <div className="csb-empty">
-              No hay resultados para esta vista.
-            </div>
+            <s-box padding="large">
+
+              <s-stack
+                alignItems="center"
+                gap="small"
+              >
+
+                <s-text>
+                  No hay resultados para esta vista.
+                </s-text>
+
+              </s-stack>
+
+            </s-box>
           )}
 
-          <div className="csb-footer">
+          <s-box padding="small">
 
-            <span>
+            <s-text tone="neutral">
               {resultCount} resultado(s)
               {view ===
                 "create"
                 ? " · Propuestas pendientes de creación"
                 : ""}
-            </span>
+            </s-text>
 
-            {view !==
-              "excluded" &&
-              filteredCandidates.length >
-                PAGE_SIZE && (
-              <div className="csb-pagination">
+          </s-box>
 
-                <button
-                  type="button"
-                  disabled={
-                    page <=
-                    1
-                  }
-                  onClick={() =>
-                    setPage(
-                      (
-                        current,
-                      ) =>
-                        Math.max(
-                          1,
-                          current -
-                            1,
-                        ),
-                    )
-                  }
-                >
-                  Anterior
-                </button>
-
-                <span>
-                  Página {page} de{" "}
-                  {totalPages}
-                </span>
-
-                <button
-                  type="button"
-                  disabled={
-                    page >=
-                    totalPages
-                  }
-                  onClick={() =>
-                    setPage(
-                      (
-                        current,
-                      ) =>
-                        Math.min(
-                          totalPages,
-                          current +
-                            1,
-                        ),
-                    )
-                  }
-                >
-                  Siguiente
-                </button>
-
-              </div>
-            )}
-
-          </div>
-
-        </div>
+        </s-section>
 
       </div>
 
@@ -3323,18 +2716,16 @@ export default function Bundles() {
 
               </div>
 
-              <button
-                className="csb-close"
-                type="button"
-                aria-label="Cerrar detalle"
+              <s-button
+                variant="tertiary"
+                icon="x"
+                accessibilityLabel="Cerrar detalle"
                 onClick={() =>
                   setDetailCandidateId(
                     null,
                   )
                 }
-              >
-                ×
-              </button>
+              />
 
             </div>
 
@@ -3591,8 +2982,8 @@ export default function Bundles() {
                       }
                     />
 
-                    <button
-                      className="csb-primary-button"
+                    <s-button
+                      variant="primary"
                       type="submit"
                       disabled={
                         working
@@ -3603,7 +2994,7 @@ export default function Bundles() {
                         detailCandidate.id
                         ? "Creando..."
                         : "Crear borrador"}
-                    </button>
+                    </s-button>
 
                   </fetcher.Form>
                 )}
@@ -3628,15 +3019,15 @@ export default function Bundles() {
                       }
                     />
 
-                    <button
-                      className="csb-secondary-button"
+                    <s-button
+                      variant="secondary"
                       type="submit"
                       disabled={
                         working
                       }
                     >
                       Excluir este PC de todas las propuestas
-                    </button>
+                    </s-button>
 
                   </fetcher.Form>
                 )}
@@ -3659,23 +3050,22 @@ export default function Bundles() {
                       }
                     />
 
-                    <button
-                      className="csb-secondary-button"
+                    <s-button
+                      variant="secondary"
                       type="submit"
                       disabled={
                         working
                       }
                     >
                       Actualizar peso
-                    </button>
+                    </s-button>
 
                   </fetcher.Form>
                 )}
 
                 {detailMatch
                   .existingProduct && (
-                  <a
-                    className="csb-detail-link"
+                  <s-link
                     href={
                       getShopifyAdminProductHref(
                         detailMatch
@@ -3685,7 +3075,7 @@ export default function Bundles() {
                     }
                   >
                     Abrir producto en Shopify
-                  </a>
+                  </s-link>
                 )}
 
               </div>
