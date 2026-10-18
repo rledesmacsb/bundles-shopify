@@ -1380,7 +1380,7 @@ export default function Templates() {
       <div className="cst-page">
 
         <p className="cst-intro">
-          Define qué productos forman cada bundle, qué condiciones deben cumplir y qué metacampos utiliza la app para comprobar compatibilidad.
+          Define qué productos forman cada combinación de Bundles, qué condiciones deben cumplir y qué metacampos utiliza la app para comprobar compatibilidad.
         </p>
 
         <div className="cst-warning">
@@ -1519,7 +1519,7 @@ export default function Templates() {
                   <div className="cst-section">
 
                     <h3 className="cst-section__title">
-                      Productos que forman el bundle
+                      Productos incluidos en Bundles
                     </h3>
 
                     <p className="cst-section__description">
@@ -1800,7 +1800,7 @@ export default function Templates() {
                     </h3>
 
                     <p className="cst-section__description">
-                      Define cómo se identificará el bundle creado en Shopify.
+                      Define cómo se identificará el producto de Bundles creado en Shopify.
                     </p>
 
                     <div className="cst-grid cst-grid--3">
