@@ -2868,3 +2868,448 @@ export async function createDraftBundleFromCandidate(
       `Producto de Bundles creado correctamente como borrador: ${candidate.identity.title}.`,
   };
 }
+
+
+/* =========================================================
+   SYNC WEIGHT ON AN EXISTING BUNDLES PRODUCT
+
+   Used for products created before weight support was added.
+========================================================= */
+
+export async function syncExistingBundleWeightFromCandidate(
+  admin:
+    AdminClient,
+
+  candidateId:
+    string,
+): Promise<CreateDraftBundleResult> {
+  const cleanCandidateId =
+    candidateId.trim();
+
+  if (
+    !cleanCandidateId
+  ) {
+    return {
+      success:
+        false,
+
+      message:
+        "No se recibió la propuesta a actualizar.",
+    };
+  }
+
+  const [
+    catalog,
+    runtime,
+  ] =
+    await Promise.all([
+      loadBundleTemplateCatalog(
+        admin,
+      ),
+
+      loadBundleRuntimeSettings(
+        admin,
+      ),
+    ]);
+
+  if (
+    catalog.errors.length >
+      0 ||
+    runtime.errors.length >
+      0
+  ) {
+    return {
+      success:
+        false,
+
+      message:
+        `No fue posible validar la configuración actual: ${formatErrors([
+          ...catalog.errors,
+          ...runtime.errors,
+        ])}`,
+    };
+  }
+
+  const state =
+    buildTemplateBundleState(
+      catalog.products,
+      catalog.templates,
+      runtime.componentConfig,
+    );
+
+  const candidate =
+    state.candidates.find(
+      (
+        item,
+      ) =>
+        item.id ===
+        cleanCandidateId,
+    );
+
+  if (
+    !candidate
+  ) {
+    return {
+      success:
+        false,
+
+      message:
+        "La propuesta ya no es válida. Recarga Bundles y vuelve a revisarla.",
+    };
+  }
+
+  const existing =
+    await loadExistingPcMonitorBundleMatches(
+      admin,
+      [
+        candidate,
+      ],
+    );
+
+  if (
+    existing.errors.length >
+    0
+  ) {
+    return {
+      success:
+        false,
+
+      message:
+        `No fue posible localizar de forma segura el producto de Bundles existente: ${formatErrors(
+          existing.errors,
+        )}`,
+    };
+  }
+
+  const match =
+    existing.matches[0];
+
+  if (
+    !match ||
+    !match.existingProduct
+  ) {
+    return {
+      success:
+        false,
+
+      message:
+        "No existe un producto de Bundles para esta propuesta.",
+    };
+  }
+
+  const componentRequests: Array<{
+    product:
+      TemplateCatalogProduct;
+
+    role:
+      ComponentRole;
+  }> = [
+    {
+      product:
+        candidate.baseProduct,
+
+      role:
+        "pc",
+    },
+
+    {
+      product:
+        candidate.monitor,
+
+      role:
+        "monitor",
+    },
+
+    {
+      product:
+        candidate.keyboardMouse,
+
+      role:
+        "keyboard_mouse",
+    },
+  ];
+
+  if (
+    candidate.wifiAdapter
+  ) {
+    componentRequests.push({
+      product:
+        candidate.wifiAdapter,
+
+      role:
+        "wifi_adapter",
+    });
+  }
+
+  const components:
+    ComponentDetail[] =
+    [];
+
+  for (
+    const request
+    of componentRequests
+  ) {
+    const result =
+      await loadComponentDetail(
+        admin,
+        request.product,
+        request.role,
+      );
+
+    if (
+      !result.component
+    ) {
+      return {
+        success:
+          false,
+
+        message:
+          formatErrors(
+            result.errors,
+          ),
+      };
+    }
+
+    components.push(
+      result.component,
+    );
+  }
+
+  const bundleWeight =
+    getBundleWeightGrams(
+      components,
+    );
+
+  if (
+    bundleWeight.errors.length >
+      0 ||
+    bundleWeight.weightGrams <=
+      0
+  ) {
+    return {
+      success:
+        false,
+
+      message:
+        `No se puede calcular el peso de Bundles: ${formatErrors(
+          bundleWeight.errors,
+        )}`,
+    };
+  }
+
+  const productResponse =
+    await admin.graphql(
+      `#graphql
+        query CsbyteExistingBundleParentVariant(
+          $id: ID!
+        ) {
+          product(
+            id: $id
+          ) {
+            id
+
+            variants(
+              first: 2
+            ) {
+              nodes {
+                id
+              }
+            }
+          }
+        }
+      `,
+      {
+        variables: {
+          id:
+            match
+              .existingProduct
+              .id,
+        },
+      },
+    );
+
+  const productJson =
+    (await productResponse.json()) as {
+      data?: {
+        product?:
+          | {
+              id:
+                string;
+
+              variants: {
+                nodes: Array<{
+                  id:
+                    string;
+                }>;
+              };
+            }
+          | null;
+      };
+
+      errors?: Array<{
+        message:
+          string;
+      }>;
+    };
+
+  const productErrors =
+    getGraphqlErrors(
+      productJson,
+    );
+
+  const product =
+    productJson.data
+      ?.product;
+
+  if (
+    productErrors.length >
+      0 ||
+    !product ||
+    product
+      .variants
+      .nodes
+      .length !==
+      1
+  ) {
+    return {
+      success:
+        false,
+
+      message:
+        productErrors.length >
+          0
+          ? formatErrors(
+              productErrors,
+            )
+          : "El producto de Bundles no tiene exactamente una variante padre.",
+    };
+  }
+
+  const variantId =
+    product
+      .variants
+      .nodes[0]
+      .id;
+
+  const updateResponse =
+    await admin.graphql(
+      `#graphql
+        mutation CsbyteSyncBundleWeight(
+          $productId: ID!
+          $variants: [ProductVariantsBulkInput!]!
+        ) {
+          productVariantsBulkUpdate(
+            productId: $productId
+            variants: $variants
+          ) {
+            productVariants {
+              id
+
+              inventoryItem {
+                measurement {
+                  weight {
+                    value
+                    unit
+                  }
+                }
+              }
+            }
+
+            userErrors {
+              field
+              message
+            }
+          }
+        }
+      `,
+      {
+        variables: {
+          productId:
+            product.id,
+
+          variants: [
+            {
+              id:
+                variantId,
+
+              inventoryItem: {
+                measurement: {
+                  weight: {
+                    value:
+                      bundleWeight
+                        .weightGrams,
+
+                    unit:
+                      "GRAMS",
+                  },
+                },
+              },
+            },
+          ],
+        },
+      },
+    );
+
+  const updateJson =
+    (await updateResponse.json()) as {
+      data?: {
+        productVariantsBulkUpdate?: {
+          userErrors?: Array<{
+            message:
+              string;
+          }>;
+        };
+      };
+
+      errors?: Array<{
+        message:
+          string;
+      }>;
+    };
+
+  const updateErrors = [
+    ...getGraphqlErrors(
+      updateJson,
+    ),
+
+    ...(updateJson.data
+      ?.productVariantsBulkUpdate
+      ?.userErrors
+      ?.map(
+        (
+          error,
+        ) =>
+          error.message,
+      ) ??
+      []),
+  ];
+
+  if (
+    updateErrors.length >
+    0
+  ) {
+    return {
+      success:
+        false,
+
+      message:
+        `No fue posible actualizar el peso: ${formatErrors(
+          updateErrors,
+        )}`,
+    };
+  }
+
+  return {
+    success:
+      true,
+
+    productId:
+      product.id,
+
+    weightGrams:
+      bundleWeight.weightGrams,
+
+    message:
+      `Peso actualizado correctamente: ${bundleWeight.weightGrams} g.`,
+  };
+}
