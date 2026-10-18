@@ -79,7 +79,7 @@ function getStatusLabel(
     product.status ===
     "blocked"
   ) {
-    return "Sin bundle";
+    return "Sin Bundles";
   }
 
   return "Listo";
@@ -690,7 +690,7 @@ export default function Problems() {
           </h1>
 
           <p className="csb-problems-description">
-            Detecta inmediatamente qué información o componente impide generar un bundle para cada PC.
+            Detecta inmediatamente qué información o componente impide generar Bundles para cada PC.
           </p>
 
         </div>
@@ -965,7 +965,7 @@ export default function Problems() {
 
                       {ready ? (
                         <div className="csb-ready-message">
-                          ✓ Producto listo para generar bundle
+                          ✓ Producto listo para generar Bundles
                         </div>
                       ) : (
                         <ul className="csb-problem-list">
