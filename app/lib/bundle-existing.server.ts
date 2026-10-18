@@ -2093,7 +2093,7 @@ export async function loadExistingPcMonitorBundleMatches(
                 identityResult.product,
 
               message:
-                `Ya existe un bundle administrado por la plantilla "${candidate.templateName}".`,
+                `Ya existe un producto de Bundles administrado por la plantilla "${candidate.templateName}".`,
             },
           );
 
