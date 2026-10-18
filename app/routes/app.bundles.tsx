@@ -1527,18 +1527,13 @@ export default function Bundles() {
     () => {
       if (
         bulkRunning ||
-        fetcher.state !==
-          "idle"
+        fetcher.state !== "idle"
       ) {
         return;
       }
 
-      const queue =
-        selectedNewCandidateIds;
-
       if (
-        queue.length ===
-        0
+        selectedNewCandidateIds.length === 0
       ) {
         shopify.toast.show(
           "Selecciona al menos una propuesta de Bundles por crear.",
@@ -1547,18 +1542,36 @@ export default function Bundles() {
         return;
       }
 
-      const confirmed =
-        window.confirm(
-          "Se crearán " +
-          queue.length +
-          " bundles como borrador, uno por uno. Cada propuesta se volverá a validar antes de crearla. ¿Continuar?",
-        );
+      void shopify.modal.show(
+        "bundle-bulk-confirm-modal",
+      );
+    };
 
+  const confirmBulkCreation =
+    () => {
       if (
-        !confirmed
+        bulkRunning ||
+        fetcher.state !== "idle"
       ) {
         return;
       }
+
+      const queue =
+        selectedNewCandidateIds;
+
+      if (
+        queue.length === 0
+      ) {
+        void shopify.modal.hide(
+          "bundle-bulk-confirm-modal",
+        );
+
+        return;
+      }
+
+      void shopify.modal.hide(
+        "bundle-bulk-confirm-modal",
+      );
 
       setBulkQueue(
         queue,
@@ -2542,6 +2555,43 @@ export default function Bundles() {
         </s-section>
 
       </div>
+
+      <s-modal
+        id="bundle-bulk-confirm-modal"
+        heading="Crear Bundles como borradores"
+        accessibilityLabel="Confirmar creación de Bundles"
+        size="small"
+      >
+        <s-stack gap="base">
+          <s-paragraph>
+            Se crearán {selectedNewCandidateIds.length} Bundles, uno por uno.
+            Cada propuesta se validará nuevamente antes de crearla.
+          </s-paragraph>
+
+          <s-paragraph>
+            Los productos quedarán como borradores y no se publicarán en
+            Tienda online.
+          </s-paragraph>
+        </s-stack>
+
+        <s-button
+          slot="secondary-actions"
+          variant="secondary"
+          commandFor="bundle-bulk-confirm-modal"
+          command="--hide"
+        >
+          Cancelar
+        </s-button>
+
+        <s-button
+          slot="primary-action"
+          variant="primary"
+          disabled={bulkRunning || fetcher.state !== "idle"}
+          onClick={confirmBulkCreation}
+        >
+          Crear borradores ({selectedNewCandidateIds.length})
+        </s-button>
+      </s-modal>
 
       <s-modal
         id="bundle-detail-modal"
