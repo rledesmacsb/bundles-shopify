@@ -60,9 +60,32 @@ type ProductOption = {
   values: string[];
 };
 
+type WeightUnit =
+  | "GRAMS"
+  | "KILOGRAMS"
+  | "OUNCES"
+  | "POUNDS";
+
+type WeightValue = {
+  value: number;
+  unit: WeightUnit;
+};
+
 type CreationVariant = {
   id: string;
   sku: string | null;
+
+  inventoryItem:
+    | {
+        measurement:
+          | {
+              weight:
+                | WeightValue
+                | null;
+            }
+          | null;
+      }
+    | null;
 
   selectedOptions: SelectedOption[];
 };
@@ -117,6 +140,8 @@ export type CreateDraftBundleResult = {
   sku?: string;
 
   price?: number;
+
+  weightGrams?: number;
 
   partial?: boolean;
 };
@@ -177,6 +202,114 @@ function formatErrors(
   return errors
     .filter(Boolean)
     .join(" | ");
+}
+
+function weightToGrams(
+  weight:
+    WeightValue,
+) {
+  switch (
+    weight.unit
+  ) {
+    case "GRAMS":
+      return weight.value;
+
+    case "KILOGRAMS":
+      return (
+        weight.value *
+        1000
+      );
+
+    case "OUNCES":
+      return (
+        weight.value *
+        28.349523125
+      );
+
+    case "POUNDS":
+      return (
+        weight.value *
+        453.59237
+      );
+
+    default:
+      return Number.NaN;
+  }
+}
+
+function getBundleWeightGrams(
+  components:
+    ComponentDetail[],
+) {
+  let total =
+    0;
+
+  const errors:
+    string[] =
+    [];
+
+  for (
+    const component
+    of components
+  ) {
+    const weight =
+      component
+        .variant
+        .inventoryItem
+        ?.measurement
+        ?.weight;
+
+    const label =
+      getComponentLabel(
+        component.role,
+      );
+
+    if (
+      !weight ||
+      !Number.isFinite(
+        weight.value,
+      ) ||
+      weight.value <=
+        0
+    ) {
+      errors.push(
+        `${label}: falta el peso del producto en Shopify.`,
+      );
+
+      continue;
+    }
+
+    const grams =
+      weightToGrams(
+        weight,
+      );
+
+    if (
+      !Number.isFinite(
+        grams,
+      ) ||
+      grams <=
+        0
+    ) {
+      errors.push(
+        `${label}: el peso configurado no es válido.`,
+      );
+
+      continue;
+    }
+
+    total +=
+      grams;
+  }
+
+  return {
+    weightGrams:
+      Math.round(
+        total,
+      ),
+
+    errors,
+  };
 }
 
 function getComponentLabel(
@@ -242,6 +375,15 @@ async function fetchCreationProduct(
                 nodes {
                   id
                   sku
+
+                  inventoryItem {
+                    measurement {
+                      weight {
+                        value
+                        unit
+                      }
+                    }
+                  }
 
                   selectedOptions {
                     name
@@ -1263,6 +1405,9 @@ async function updateBundleVariant(
 
   price:
     number,
+
+  weightGrams:
+    number,
 ) {
   const response =
     await admin.graphql(
@@ -1281,6 +1426,13 @@ async function updateBundleVariant(
 
               inventoryItem {
                 sku
+
+                measurement {
+                  weight {
+                    value
+                    unit
+                  }
+                }
               }
             }
 
@@ -1307,6 +1459,16 @@ async function updateBundleVariant(
 
               inventoryItem: {
                 sku,
+
+                measurement: {
+                  weight: {
+                    value:
+                      weightGrams,
+
+                    unit:
+                      "GRAMS",
+                  },
+                },
               },
             },
           ],
@@ -1378,6 +1540,9 @@ async function writeBundleMetadata(
 
   finalPrice:
     number,
+
+  weightGrams:
+    number,
 ) {
   const base =
     components.find(
@@ -1429,6 +1594,8 @@ async function writeBundleMetadata(
     sku,
 
     finalPrice,
+
+    weightGrams,
 
     base: {
       productId:
@@ -1624,6 +1791,9 @@ async function verifyCreatedBundle(
 
   expectedPrice:
     number,
+
+  expectedWeightGrams:
+    number,
 ) {
   const response =
     await admin.graphql(
@@ -1649,6 +1819,13 @@ async function verifyCreatedBundle(
 
                 inventoryItem {
                   sku
+
+                  measurement {
+                    weight {
+                      value
+                      unit
+                    }
+                  }
                 }
               }
             }
@@ -1730,6 +1907,14 @@ async function verifyCreatedBundle(
                     | {
                         sku:
                           string | null;
+
+                        measurement?:
+                          | {
+                              weight:
+                                | WeightValue
+                                | null;
+                            }
+                          | null;
                       }
                     | null;
                 }>;
@@ -1887,6 +2072,30 @@ async function verifyCreatedBundle(
   ) {
     verificationErrors.push(
       `Precio esperado: ${expectedPrice}.`,
+    );
+  }
+
+  const actualWeight =
+    variant
+      .inventoryItem
+      ?.measurement
+      ?.weight;
+
+  const actualWeightGrams =
+    actualWeight
+      ? Math.round(
+          weightToGrams(
+            actualWeight,
+          ),
+        )
+      : null;
+
+  if (
+    actualWeightGrams !==
+    expectedWeightGrams
+  ) {
+    verificationErrors.push(
+      `Peso esperado: ${expectedWeightGrams} g.`,
     );
   }
 
@@ -2265,6 +2474,42 @@ export async function createDraftBundleFromCandidate(
     };
   }
 
+  const bundleWeight =
+    getBundleWeightGrams(
+      components,
+    );
+
+  if (
+    bundleWeight
+      .errors
+      .length >
+    0
+  ) {
+    return {
+      success:
+        false,
+
+      message:
+        `No se puede calcular el peso de Bundles: ${formatErrors(
+          bundleWeight.errors,
+        )}`,
+    };
+  }
+
+  if (
+    bundleWeight
+      .weightGrams <=
+    0
+  ) {
+    return {
+      success:
+        false,
+
+      message:
+        "El peso total de Bundles no es válido.",
+    };
+  }
+
   /* -------------------------------------------------------
      3. DUPLICATE / SKU CHECK IMMEDIATELY BEFORE MUTATION
 
@@ -2502,6 +2747,7 @@ export async function createDraftBundleFromCandidate(
       parentVariant.id,
       freshExpectedSku,
       price.finalPrice,
+      bundleWeight.weightGrams,
     );
 
   if (
@@ -2537,6 +2783,7 @@ export async function createDraftBundleFromCandidate(
       components,
       freshExpectedSku,
       price.finalPrice,
+      bundleWeight.weightGrams,
     );
 
   if (
@@ -2571,6 +2818,7 @@ export async function createDraftBundleFromCandidate(
       candidate,
       freshExpectedSku,
       price.finalPrice,
+      bundleWeight.weightGrams,
     );
 
   if (
@@ -2611,6 +2859,9 @@ export async function createDraftBundleFromCandidate(
 
     price:
       price.finalPrice,
+
+    weightGrams:
+      bundleWeight.weightGrams,
 
     message:
       `Producto de Bundles creado correctamente como borrador: ${candidate.identity.title}.`,
