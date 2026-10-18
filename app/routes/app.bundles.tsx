@@ -434,6 +434,57 @@ function getWorkflowStatusClass(
   return "csb-status csb-status--warning";
 }
 
+function getProductStatusLabel(
+  status:
+    | string
+    | null
+    | undefined,
+) {
+  switch (
+    status
+  ) {
+    case "ACTIVE":
+      return "Activo";
+
+    case "DRAFT":
+      return "Borrador";
+
+    case "ARCHIVED":
+      return "Archivado";
+
+    case "UNLISTED":
+      return "No listado";
+
+    default:
+      return status
+        ? status
+        : "No creado";
+  }
+}
+
+function getProductStatusClass(
+  status:
+    | string
+    | null
+    | undefined,
+) {
+  switch (
+    status
+  ) {
+    case "ACTIVE":
+      return "csb-status csb-status--product-active";
+
+    case "DRAFT":
+      return "csb-status csb-status--product-draft";
+
+    case "ARCHIVED":
+      return "csb-status csb-status--product-archived";
+
+    default:
+      return "csb-status csb-status--unpublished";
+  }
+}
+
 function getShopifyAdminProductHref(
   productId:
     string,
@@ -1892,6 +1943,34 @@ export default function Bundles() {
           color: #835800;
         }
 
+        .csb-status--product-active {
+          background: #eaf8ee;
+          color: #26733e;
+        }
+
+        .csb-status--product-draft {
+          background: #eef0f3;
+          color: #59636e;
+        }
+
+        .csb-status--product-archived {
+          background: #f3f0f0;
+          color: #765454;
+        }
+
+        .csb-status-stack {
+          display: flex;
+          align-items: flex-start;
+          flex-direction: column;
+          gap: 4px;
+        }
+
+        .csb-status-note {
+          color: #8a939d;
+          font-size: 9px;
+          line-height: 1.25;
+        }
+
         .csb-row-action {
           display: flex;
           justify-content: flex-end;
@@ -2364,7 +2443,7 @@ export default function Bundles() {
             </h2>
 
             <p className="csb-description">
-              Revisa las propuestas, controla qué bundles ya existen y distingue cuáles están publicados en Tienda online.
+              Revisa las propuestas y distingue el estado del producto en Shopify de su publicación en Tienda online.
             </p>
 
           </div>
@@ -2826,25 +2905,68 @@ export default function Bundles() {
                   </div>
 
                   <div>
-                    <span
-                      className={
-                        getWorkflowStatusClass(
-                          match.status,
-                          match
+                    {isExistingStatus(
+                      match.status,
+                    ) &&
+                    match.existingProduct ? (
+                      <div className="csb-status-stack">
+
+                        <span
+                          className={
+                            getProductStatusClass(
+                              match
+                                .existingProduct
+                                .status,
+                            )
+                          }
+                        >
+                          {
+                            getProductStatusLabel(
+                              match
+                                .existingProduct
+                                .status,
+                            )
+                          }
+                        </span>
+
+                        <span
+                          className={
+                            match
+                              .existingProduct
+                              .publishedAt
+                              ? "csb-status csb-status--published"
+                              : "csb-status csb-status--unpublished"
+                          }
+                        >
+                          {match
                             .existingProduct
-                            ?.publishedAt,
-                        )
-                      }
-                    >
-                      {
-                        getWorkflowStatusLabel(
-                          match.status,
-                          match
-                            .existingProduct
-                            ?.publishedAt,
-                        )
-                      }
-                    </span>
+                            .publishedAt
+                            ? "Tienda online"
+                            : "Sin publicar"}
+                        </span>
+
+                      </div>
+                    ) : (
+                      <span
+                        className={
+                          getWorkflowStatusClass(
+                            match.status,
+                            match
+                              .existingProduct
+                              ?.publishedAt,
+                          )
+                        }
+                      >
+                        {
+                          getWorkflowStatusLabel(
+                            match.status,
+                            match
+                              .existingProduct
+                              ?.publishedAt,
+                          )
+                        }
+                      </span>
+                    )}
                   </div>
 
                   <div className="csb-row-action">
@@ -3215,6 +3337,21 @@ export default function Bundles() {
                       detailCandidate
                         .identity
                         .sku
+                    }
+                  </strong>
+                </div>
+
+                <div className="csb-detail-row">
+                  <span>
+                    Estado Shopify
+                  </span>
+                  <strong>
+                    {
+                      getProductStatusLabel(
+                        detailMatch
+                          .existingProduct
+                          ?.status,
+                      )
                     }
                   </strong>
                 </div>
