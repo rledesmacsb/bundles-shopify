@@ -37,9 +37,13 @@ import {
 } from "../lib/bundle-engine";
 
 import {
-  loadPcMonitorBundleData,
   savePcMonitorPriceConfig,
 } from "../lib/bundle-data.server";
+
+import {
+  invalidateShopBundleCache,
+  loadCachedPcMonitorBundleData,
+} from "../lib/bundle-cache.server";
 
 /* =========================================================
    LOADER
@@ -51,13 +55,15 @@ export const loader =
   }: LoaderFunctionArgs) => {
     const {
       admin,
+      session,
     } =
       await authenticate.admin(
         request,
       );
 
-    return loadPcMonitorBundleData(
+    return loadCachedPcMonitorBundleData(
       admin,
+      session.shop,
     );
   };
 
@@ -71,6 +77,7 @@ export const action =
   }: ActionFunctionArgs) => {
     const {
       admin,
+      session,
     } =
       await authenticate.admin(
         request,
@@ -150,21 +157,32 @@ export const action =
           )
         : 0;
 
-    return savePcMonitorPriceConfig(
-      admin,
-      {
-        configured:
-          true,
+    const result =
+      await savePcMonitorPriceConfig(
+        admin,
+        {
+          configured:
+            true,
 
-        mode,
+          mode,
 
-        percentage,
+          percentage,
 
-        fixedAmount,
+          fixedAmount,
 
-        rounding,
-      },
-    );
+          rounding,
+        },
+      );
+
+    if (
+      result.success
+    ) {
+      invalidateShopBundleCache(
+        session.shop,
+      );
+    }
+
+    return result;
   };
 
 /* =========================================================
