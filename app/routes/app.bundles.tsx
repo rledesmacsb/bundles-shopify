@@ -861,6 +861,24 @@ export default function Bundles() {
       });
     }
 
+    // Fail closed: stop the batch after any failure or uncertain result.
+    // Shopify can create a product before a subsequent configuration step
+    // fails. Continuing automatically could hide a partially created item.
+    if (!normalizedResult.success) {
+      setBulkRunning(false);
+      setBulkCurrentCandidateId(null);
+      setSelectedCandidateIds(new Set());
+
+      shopify.toast.show(
+        normalizedResult.partial
+          ? "Creación detenida: revisa el producto que Shopify pudo haber creado."
+          : "Creación detenida: revisa el motivo del rechazo.",
+      );
+
+      revalidator.revalidate();
+      return;
+    }
+
     const currentIndex =
       bulkQueue.indexOf(
         bulkCurrentCandidateId,
@@ -1653,6 +1671,10 @@ export default function Bundles() {
       );
     };
 
+  const failedBulkResults = bulkResults.filter(
+    (item) => !item.success,
+  );
+
   const resultCount =
     view ===
     "excluded"
@@ -1913,26 +1935,65 @@ export default function Bundles() {
             </div>
           )}
 
-          {(bulkRunning ||
-            bulkResults.length >
-              0) && (
+          {(bulkRunning || bulkResults.length > 0) && (
             <s-banner
               tone={
                 bulkRunning
                   ? "info"
-                  : "success"
+                  : failedBulkResults.length > 0
+                    ? failedBulkResults.some((item) => item.partial)
+                      ? "warning"
+                      : "critical"
+                    : "success"
               }
               heading={
                 bulkRunning
                   ? "Creando Bundles"
-                  : "Proceso terminado"
+                  : failedBulkResults.length > 0
+                    ? "Creación detenida: requiere revisión"
+                    : "Bundles creados correctamente"
               }
             >
-              {bulkRunning
-                ? `Procesando ${bulkResults.length + 1} de ${bulkQueue.length}. Cada propuesta se valida nuevamente antes de crearse.`
-                : `${bulkResults.filter((item) => item.success).length} creados · ${bulkResults.filter((item) => !item.success && !item.partial).length} omitidos · ${bulkResults.filter((item) => !item.success && item.partial).length} para revisar.`}
+              <s-stack gap="small">
+                <s-paragraph>
+                  {bulkRunning
+                    ? `Procesando ${bulkResults.length + 1} de ${bulkQueue.length}. Cada propuesta se valida nuevamente antes de crearse.`
+                    : `${bulkResults.filter((item) => item.success).length} creados · ${bulkResults.filter((item) => !item.success && !item.partial).length} omitidos · ${bulkResults.filter((item) => !item.success && item.partial).length} para revisar.`}
+                </s-paragraph>
+
+                {!bulkRunning &&
+                  failedBulkResults.map((item) => {
+                    const candidate = state.candidates.find(
+                      (entry) => entry.id === item.candidateId,
+                    );
+                    return (
+                      <s-stack key={item.candidateId} gap="small">
+                        <s-text>
+                          <strong>
+                            {candidate?.baseProduct.title ?? "Propuesta"}
+                          </strong>
+                        </s-text>
+                        <s-paragraph>
+                          {item.message}
+                        </s-paragraph>
+                        {item.partial && (
+                          <s-text tone="warning">
+                            Verifica primero si existe el producto en Shopify. No lo vuelvas a crear.
+                          </s-text>
+                        )}
+                      </s-stack>
+                    );
+                  })}
+              </s-stack>
             </s-banner>
           )}
+
+          {fetcher.data?.success === false &&
+            fetcher.data?.message && (
+              <s-banner heading="La acción no se completó" tone="critical">
+                <s-paragraph>{fetcher.data.message}</s-paragraph>
+              </s-banner>
+            )}
 
           {view !==
             "excluded" ? (
