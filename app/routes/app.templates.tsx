@@ -755,778 +755,159 @@ export default function Templates() {
   }
 
   return (
-    <s-page heading="Plantillas de bundles" inlineSize="large">
-
-      <style>{`
-        .cst-page,
-        .cst-page *,
-        .cst-page *::before,
-        .cst-page *::after {
-          box-sizing: border-box;
-        }
-
-        .cst-page {
-          width: 100%;
-          max-width: none;
-          margin: 0;
-          padding-bottom: 24px;
-        }
-
-        .cst-intro {
-          max-width: 900px;
-          margin: 4px 2px 18px;
-          color: #69727d;
-          font-size: 12px;
-          line-height: 1.55;
-        }
-
-        .cst-warning {
-          margin-bottom: 16px;
-          padding: 13px 15px;
-          border: 1px solid #dfd2a6;
-          border-radius: 12px;
-          background: #fffaf0;
-          color: #6d581c;
-          font-size: 11.5px;
-          line-height: 1.45;
-        }
-
-        .cst-errors {
-          margin-bottom: 16px;
-          padding: 13px 15px;
-          border: 1px solid #e6b7b7;
-          border-radius: 12px;
-          background: #fff5f5;
-          color: #8f2525;
-          font-size: 11px;
-          line-height: 1.45;
-        }
-
-        .cst-list {
-          display: flex;
-          flex-direction: column;
-          gap: 18px;
-        }
-
-        .cst-template {
-          overflow: hidden;
-          border: 1px solid #e4e9f0;
-          border-radius: 12px;
-          background: #fff;
-        }
-
-        .cst-template__header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 20px;
-          padding: 18px 20px;
-          border-bottom: 1px solid #ededed;
-          background: #fff;
-        }
-
-        .cst-template__title {
-          margin: 0 0 3px;
-          color: #303030;
-          font-size: 15px;
-          font-weight: 700;
-        }
-
-        .cst-template__id {
-          color: #777;
-          font-family: monospace;
-          font-size: 10px;
-        }
-
-        .cst-switch {
-          display: flex;
-          align-items: center;
-          gap: 7px;
-          color: #303030;
-          font-size: 11px;
-          font-weight: 600;
-        }
-
-        .cst-body {
-          padding: 20px;
-        }
-
-        .cst-section {
-          margin-bottom: 27px;
-        }
-
-        .cst-section:last-child {
-          margin-bottom: 0;
-        }
-
-        .cst-section__title {
-          margin: 0 0 4px;
-          color: #303030;
-          font-size: 12px;
-          font-weight: 700;
-        }
-
-        .cst-section__description {
-          margin: 0 0 12px;
-          color: #777;
-          font-size: 10.5px;
-          line-height: 1.4;
-        }
-
-        .cst-grid {
-          display: grid;
-          grid-template-columns:
-            repeat(
-              2,
-              minmax(0, 1fr)
-            );
-          gap: 12px;
-        }
-
-        .cst-grid--3 {
-          grid-template-columns:
-            repeat(
-              3,
-              minmax(0, 1fr)
-            );
-        }
-
-        .cst-field {
-          min-width: 0;
-        }
-
-        .cst-label {
-          display: block;
-          margin-bottom: 5px;
-          color: #555;
-          font-size: 10px;
-          font-weight: 650;
-        }
-
-        .cst-input,
-        .cst-select {
-          display: block;
-          width: 100%;
-          max-width: 100%;
-          min-width: 0;
-          min-height: 38px;
-          padding: 7px 10px;
-          border: 1px solid #c9c9c9;
-          border-radius: 8px;
-          background: #fff;
-          color: #303030;
-          font: inherit;
-          font-size: 11.5px;
-        }
-
-        .cst-input:focus,
-        .cst-select:focus {
-          outline: none;
-          border-color: #0c62f2;
-          box-shadow: 0 0 0 1px #0c62f2;
-        }
-
-        /* ===============================================
-           COMPONENTS
-        =============================================== */
-
-        .cst-components {
-          display: grid;
-          grid-template-columns:
-            repeat(
-              2,
-              minmax(0, 1fr)
-            );
-          gap: 12px;
-        }
-
-        .cst-component {
-          min-width: 0;
-          padding: 14px;
-          border: 1px solid #e4e9f0;
-          border-radius: 11px;
-          background: #fafafa;
-        }
-
-        .cst-component--editing {
-          grid-column: 1 / -1;
-          border-color: #a9c8f8;
-          background: #fff;
-        }
-
-        .cst-component__header {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-          gap: 12px;
-        }
-
-        .cst-component__title {
-          color: #303030;
-          font-size: 11.5px;
-          font-weight: 700;
-        }
-
-        .cst-component__count {
-          margin-top: 3px;
-          color: #777;
-          font-size: 10px;
-        }
-
-        .cst-edit-button {
-          flex-shrink: 0;
-          min-width: 68px;
-          min-height: 30px;
-          padding: 5px 10px;
-          border: 1px solid #c9c9c9;
-          border-radius: 8px;
-          background: #fff;
-          color: #303030;
-          font: inherit;
-          font-size: 10px;
-          font-weight: 650;
-          cursor: pointer;
-        }
-
-        .cst-edit-button:hover {
-          background: #f3f3f3;
-        }
-
-        .cst-component__summary {
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-          margin-top: 10px;
-        }
-
-        .cst-summary-item {
-          overflow: hidden;
-          color: #616161;
-          font-size: 9.5px;
-          line-height: 1.4;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-        }
-
-        /* ===============================================
-           RULE EDITOR
-        =============================================== */
-
-        .cst-rule-editor {
-          margin-top: 16px;
-          padding-top: 16px;
-          border-top: 1px solid #ededed;
-        }
-
-        .cst-rule-mode {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          margin-bottom: 13px;
-        }
-
-        .cst-rule-mode__label {
-          color: #555;
-          font-size: 10px;
-          font-weight: 650;
-        }
-
-        .cst-rule-mode select {
-          width: 260px;
-        }
-
-        .cst-condition-list {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
-
-        /*
-         * Normal condition:
-         *
-         * Campo | Operador | Valor | Eliminar
-         */
-        .cst-condition {
-          display: grid;
-          grid-template-columns:
-            155px
-            160px
-            minmax(0, 1fr)
-            80px;
-          gap: 8px;
-          align-items: end;
-          padding: 11px;
-          border: 1px solid #e5e5e5;
-          border-radius: 10px;
-          background: #fafafa;
-        }
-
-        /*
-         * Metafield condition:
-         *
-         * Campo | Metacampo | Operador | Valor | Eliminar
-         */
-        .cst-condition--metafield {
-          grid-template-columns:
-            125px
-            minmax(220px, 1.4fr)
-            145px
-            minmax(160px, 1fr)
-            80px;
-        }
-
-        /*
-         * Exists / not exists:
-         *
-         * no value required.
-         */
-        .cst-condition--metafield-no-value {
-          grid-template-columns:
-            125px
-            minmax(260px, 1fr)
-            155px
-            80px;
-        }
-
-        .cst-condition__field {
-          min-width: 0;
-        }
-
-        .cst-condition__field label {
-          display: block;
-          margin-bottom: 4px;
-          color: #777;
-          font-size: 8.5px;
-          font-weight: 650;
-          text-transform: uppercase;
-        }
-
-        .cst-remove {
-          width: 100%;
-          min-height: 38px;
-          border: 1px solid #e0c3c3;
-          border-radius: 8px;
-          background: #fff;
-          color: #9a3535;
-          font: inherit;
-          font-size: 9.5px;
-          cursor: pointer;
-        }
-
-        .cst-remove:disabled {
-          opacity: .35;
-          cursor: default;
-        }
-
-        .cst-rule-actions {
-          display: flex;
-          justify-content: space-between;
-          gap: 10px;
-          margin-top: 12px;
-        }
-
-        .cst-add {
-          min-height: 34px;
-          padding: 6px 12px;
-          border: 1px solid #c9c9c9;
-          border-radius: 8px;
-          background: #fff;
-          color: #303030;
-          font: inherit;
-          font-size: 10.5px;
-          font-weight: 600;
-          cursor: pointer;
-        }
-
-        .cst-done {
-          min-height: 34px;
-          padding: 6px 16px;
-          border: 0;
-          border-radius: 8px;
-          background: #0c62f2;
-          color: #fff;
-          font: inherit;
-          font-size: 10.5px;
-          font-weight: 600;
-          cursor: pointer;
-        }
-
-        /* ===============================================
-           GENERATED PRODUCT
-        =============================================== */
-
-        .cst-preview {
-          margin-top: 12px;
-          padding: 12px 14px;
-          border: 1px solid #dcdcdc;
-          border-radius: 10px;
-          background: #fafafa;
-        }
-
-        .cst-preview__label {
-          margin-bottom: 4px;
-          color: #777;
-          font-size: 9px;
-          text-transform: uppercase;
-        }
-
-        .cst-preview__value {
-          color: #303030;
-          font-size: 12px;
-          font-weight: 650;
-        }
-
-        /* ===============================================
-           SAVE BAR
-        =============================================== */
-
-        .cst-save-wrap {
-          position: sticky;
-          bottom: 14px;
-          z-index: 5;
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 15px;
-          margin-top: 18px;
-          padding: 11px;
-          border: 1px solid #e4e9f0;
-          border-radius: 10px;
-          background: #fff;
-          box-shadow: 0 -2px 8px rgba(31, 33, 36, .04);
-        }
-
-        .cst-save-status {
-          padding-left: 4px;
-          color: #777;
-          font-size: 10.5px;
-        }
-
-        .cst-save-status--dirty {
-          color: #8a5a00;
-          font-weight: 650;
-        }
-
-        .cst-save {
-          min-width: 180px;
-          min-height: 40px;
-          padding: 7px 16px;
-          border: 0;
-          border-radius: 9px;
-          background: #303030;
-          color: #fff;
-          font: inherit;
-          font-size: 12px;
-          font-weight: 650;
-          cursor: pointer;
-        }
-
-        .cst-save:disabled {
-          opacity: .45;
-          cursor: default;
-        }
-
-        @media (max-width: 1050px) {
-          .cst-condition,
-          .cst-condition--metafield,
-          .cst-condition--metafield-no-value {
-            grid-template-columns:
-              1fr
-              1fr;
-          }
-        }
-
-        @media (max-width: 850px) {
-          .cst-grid,
-          .cst-grid--3,
-          .cst-components {
-            grid-template-columns:
-              1fr;
-          }
-
-          .cst-component--editing {
-            grid-column: auto;
-          }
-
-          .cst-template__header {
-            align-items: flex-start;
-            flex-direction: column;
-          }
-        }
-
-        @media (max-width: 600px) {
-          .cst-page {
-            padding-bottom: 88px;
-          }
-
-          .cst-intro {
-            margin-top: 0;
-            margin-bottom: 12px;
-            font-size: 11.5px;
-          }
-
-          .cst-warning,
-          .cst-errors {
-            padding: 11px 12px;
-            border-radius: 9px;
-            font-size: 10.5px;
-          }
-
-          .cst-list {
-            gap: 12px;
-          }
-
-          .cst-template {
-            border-radius: 10px;
-          }
-
-          .cst-template__header {
-            gap: 12px;
-            padding: 14px;
-          }
-
-          .cst-template__title {
-            font-size: 14px;
-          }
-
-          .cst-switch {
-            min-height: 38px;
-          }
-
-          .cst-body {
-            padding: 14px;
-          }
-
-          .cst-section {
-            margin-bottom: 20px;
-          }
-
-          .cst-grid,
-          .cst-grid--3,
-          .cst-components,
-          .cst-condition,
-          .cst-condition--metafield,
-          .cst-condition--metafield-no-value {
-            grid-template-columns:
-              1fr;
-          }
-
-          .cst-input,
-          .cst-select {
-            min-height: 42px;
-            font-size: 12px;
-          }
-
-          .cst-component {
-            padding: 12px;
-          }
-
-          .cst-component__header {
-            align-items: stretch;
-            flex-direction: column;
-          }
-
-          .cst-edit-button {
-            width: 100%;
-            min-height: 40px;
-          }
-
-          .cst-rule-mode {
-            align-items: stretch;
-            flex-direction: column;
-          }
-
-          .cst-rule-mode select {
-            width: 100%;
-          }
-
-          .cst-rule-actions {
-            flex-direction: column;
-          }
-
-          .cst-add,
-          .cst-done,
-          .cst-remove {
-            width: 100%;
-            min-height: 40px;
-          }
-
-          .cst-save-wrap {
-            position: fixed;
-            right: 10px;
-            bottom: 10px;
-            left: 10px;
-            z-index: 30;
-            align-items: stretch;
-            flex-direction: column;
-            gap: 7px;
-            margin: 0;
-            padding: 9px;
-            border-radius: 10px;
-          }
-
-          .cst-save-status {
-            padding-left: 0;
-            text-align: center;
-          }
-
-          .cst-save {
-            width: 100%;
-            min-height: 44px;
-          }
-        }
-      `}</style>
-
-      <div className="cst-page">
-
-        <p className="cst-intro">
-          Define qué productos forman cada combinación de Bundles, qué condiciones deben cumplir y qué metacampos utiliza la app para comprobar compatibilidad.
-        </p>
-
-        <div className="cst-warning">
-          <strong>
-            Motor conectado:
-          </strong>{" "}
-          los cambios guardados en estas plantillas modifican las propuestas de Bundles sin editar código.
-        </div>
+    <s-page
+      heading="Plantillas de Bundles"
+      inlineSize="large"
+    >
+
+      <s-stack gap="base">
+
+        <s-section>
+
+          <s-paragraph>
+            Define qué productos forman cada combinación de Bundles, qué condiciones deben cumplir y qué metacampos utiliza la app para comprobar compatibilidad.
+          </s-paragraph>
+
+        </s-section>
+
+        <s-banner
+          tone="info"
+          heading="Motor conectado"
+        >
+          Los cambios guardados en estas plantillas modifican las propuestas de Bundles sin editar código.
+        </s-banner>
 
         {data.errors.length >
           0 && (
-          <div className="cst-errors">
-            <strong>
-              Algunas configuraciones de Shopify no pudieron cargarse:
-            </strong>
-
-            <br />
-
+          <s-banner
+            tone="critical"
+            heading="Algunas configuraciones de Shopify no pudieron cargarse"
+          >
             {data.errors.join(
-              " | ",
+              " · ",
             )}
-          </div>
+          </s-banner>
         )}
 
-        <div className="cst-list">
+        {templates.map(
+          (template) => (
+            <s-section
+              key={
+                template.id
+              }
+              heading={
+                template.name
+              }
+            >
 
-          {templates.map(
-            (template) => (
-              <div
-                className="cst-template"
-                key={
-                  template.id
+              <s-badge
+                slot="accessory"
+                tone={
+                  template.enabled
+                    ? "success"
+                    : "neutral"
                 }
               >
+                {template.enabled
+                  ? "Activa"
+                  : "Inactiva"}
+              </s-badge>
 
-                {/* HEADER */}
+              <s-stack gap="base">
 
-                <div className="cst-template__header">
+                <s-stack
+                  direction="inline"
+                  gap="base"
+                  alignItems="center"
+                >
+                  <s-checkbox
+                    label="Plantilla activa"
+                    checked={
+                      template.enabled
+                    }
+                    onChange={(event) =>
+                      patchTemplate(
+                        template.id,
+                        {
+                          enabled:
+                            event.currentTarget.checked,
+                        },
+                      )
+                    }
+                  />
 
-                  <div>
+                  <s-text tone="neutral">
+                    {
+                      template.id
+                    }
+                  </s-text>
+                </s-stack>
 
-                    <h2 className="cst-template__title">
-                      {template.name}
-                    </h2>
+                <s-divider />
 
-                    <div className="cst-template__id">
-                      {template.id}
-                    </div>
+                <s-stack gap="small">
 
-                  </div>
+                  <s-heading>
+                    Identificación
+                  </s-heading>
 
-                  <label className="cst-switch">
+                  <s-paragraph>
+                    Nombre interno y tipo de plantilla.
+                  </s-paragraph>
 
-                    <input
-                      type="checkbox"
-                      checked={
-                        template.enabled
-                      }
-                      onChange={(event) =>
-                        patchTemplate(
-                          template.id,
-                          {
-                            enabled:
-                              event.target.checked,
-                          },
-                        )
-                      }
-                    />
+                  <s-query-container>
 
-                    Plantilla activa
+                    <s-grid
+                      gridTemplateColumns="@container (inline-size > 700px) repeat(2, 1fr), 1fr"
+                      gap="base"
+                    >
 
-                  </label>
+                      <s-text-field
+                        label="Nombre de plantilla"
+                        value={
+                          template.name
+                        }
+                        onInput={(event) =>
+                          patchTemplate(
+                            template.id,
+                            {
+                              name:
+                                event.currentTarget.value,
+                            },
+                          )
+                        }
+                      />
 
-                </div>
+                      <s-text-field
+                        label="Tipo de plantilla"
+                        value="PC + Monitor"
+                        disabled
+                      />
 
-                <div className="cst-body">
+                    </s-grid>
 
-                  {/* IDENTIFICATION */}
+                  </s-query-container>
 
-                  <div className="cst-section">
+                </s-stack>
 
-                    <h3 className="cst-section__title">
-                      Identificación
-                    </h3>
+                <s-divider />
 
-                    <p className="cst-section__description">
-                      Nombre interno y tipo de plantilla.
-                    </p>
+                <s-stack gap="small">
 
-                    <div className="cst-grid">
+                  <s-heading>
+                    Productos incluidos en Bundles
+                  </s-heading>
 
-                      <div className="cst-field">
+                  <s-paragraph>
+                    Cada componente puede utilizar una o más condiciones. Define si deben cumplirse todas o cualquiera de ellas.
+                  </s-paragraph>
 
-                        <label className="cst-label">
-                          Nombre de plantilla
-                        </label>
+                  <s-query-container>
 
-                        <input
-                          className="cst-input"
-                          value={
-                            template.name
-                          }
-                          onChange={(event) =>
-                            patchTemplate(
-                              template.id,
-                              {
-                                name:
-                                  event.target.value,
-                              },
-                            )
-                          }
-                        />
-
-                      </div>
-
-                      <div className="cst-field">
-
-                        <label className="cst-label">
-                          Tipo de plantilla
-                        </label>
-
-                        <input
-                          className="cst-input"
-                          value="PC + Monitor"
-                          disabled
-                        />
-
-                      </div>
-
-                    </div>
-
-                  </div>
-
-                  {/* COMPONENT RULES */}
-
-                  <div className="cst-section">
-
-                    <h3 className="cst-section__title">
-                      Productos incluidos en Bundles
-                    </h3>
-
-                    <p className="cst-section__description">
-                      Cada componente puede utilizar una o más condiciones. Define si deben cumplirse todas o cualquiera de ellas.
-                    </p>
-
-                    <div className="cst-components">
+                    <s-grid
+                      gridTemplateColumns="@container (inline-size > 900px) repeat(2, minmax(0, 1fr)), 1fr"
+                      gap="base"
+                    >
 
                       <ComponentRuleCard
                         label="Computador base"
@@ -1668,23 +1049,30 @@ export default function Templates() {
                         }
                       />
 
-                    </div>
+                    </s-grid>
 
-                  </div>
+                  </s-query-container>
 
-                  {/* TECHNICAL COMPATIBILITY */}
+                </s-stack>
 
-                  <div className="cst-section">
+                <s-divider />
 
-                    <h3 className="cst-section__title">
-                      Compatibilidad técnica
-                    </h3>
+                <s-stack gap="small">
 
-                    <p className="cst-section__description">
-                      Define los metacampos utilizados para Wi-Fi y compatibilidad entre las salidas del computador y las entradas del monitor.
-                    </p>
+                  <s-heading>
+                    Compatibilidad técnica
+                  </s-heading>
 
-                    <div className="cst-grid">
+                  <s-paragraph>
+                    Define los metacampos utilizados para Wi-Fi y compatibilidad entre las salidas del computador y las entradas del monitor.
+                  </s-paragraph>
+
+                  <s-query-container>
+
+                    <s-grid
+                      gridTemplateColumns="@container (inline-size > 900px) repeat(2, minmax(0, 1fr)), 1fr"
+                      gap="base"
+                    >
 
                       <MetafieldSelector
                         label="Wi-Fi integrado"
@@ -1705,29 +1093,21 @@ export default function Templates() {
                         }
                       />
 
-                      <div className="cst-field">
-
-                        <label className="cst-label">
-                          Valor que significa “sin Wi-Fi”
-                        </label>
-
-                        <input
-                          className="cst-input"
-                          value={
-                            template.wifiNoValue
-                          }
-                          onChange={(event) =>
-                            patchTemplate(
-                              template.id,
-                              {
-                                wifiNoValue:
-                                  event.target.value,
-                              },
-                            )
-                          }
-                        />
-
-                      </div>
+                      <s-text-field
+                        label="Valor que significa “sin Wi-Fi”"
+                        value={
+                          template.wifiNoValue
+                        }
+                        onInput={(event) =>
+                          patchTemplate(
+                            template.id,
+                            {
+                              wifiNoValue:
+                                event.currentTarget.value,
+                            },
+                          )
+                        }
+                      />
 
                       <MetafieldSelector
                         label="Salidas de video del PC"
@@ -1767,249 +1147,180 @@ export default function Templates() {
                         }
                       />
 
-                      <div className="cst-field">
+                      <s-select
+                        label="Regla de compatibilidad"
+                        value={
+                          template.compatibilityOperator
+                        }
+                        disabled
+                      >
+                        <s-option value="intersection">
+                          Coincidencia directa de puertos
+                        </s-option>
+                      </s-select>
 
-                        <label className="cst-label">
-                          Regla de compatibilidad
-                        </label>
+                    </s-grid>
 
-                        <select
-                          className="cst-select"
-                          value={
-                            template.compatibilityOperator
-                          }
-                          disabled
-                        >
-                          <option value="intersection">
-                            Coincidencia directa de puertos
-                          </option>
-                        </select>
+                  </s-query-container>
 
-                      </div>
+                </s-stack>
 
-                    </div>
+                <s-divider />
 
-                  </div>
+                <s-stack gap="small">
 
-                  {/* GENERATED PRODUCT */}
+                  <s-heading>
+                    Producto generado
+                  </s-heading>
 
-                  <div className="cst-section">
+                  <s-paragraph>
+                    Define cómo se identificará el producto de Bundles creado en Shopify.
+                  </s-paragraph>
 
-                    <h3 className="cst-section__title">
-                      Producto generado
-                    </h3>
+                  <s-query-container>
 
-                    <p className="cst-section__description">
-                      Define cómo se identificará el producto de Bundles creado en Shopify.
-                    </p>
+                    <s-grid
+                      gridTemplateColumns="@container (inline-size > 1050px) repeat(3, minmax(0, 1fr)), @container (inline-size > 700px) repeat(2, minmax(0, 1fr)), 1fr"
+                      gap="base"
+                    >
 
-                    <div className="cst-grid cst-grid--3">
+                      <s-text-field
+                        label="Prefijo del nombre"
+                        value={
+                          template.titlePrefix
+                        }
+                        onInput={(event) =>
+                          patchTemplate(
+                            template.id,
+                            {
+                              titlePrefix:
+                                event.currentTarget.value,
+                            },
+                          )
+                        }
+                      />
 
-                      <div className="cst-field">
+                      <s-text-field
+                        label="Sufijo del monitor"
+                        placeholder="Opcional"
+                        value={
+                          template.monitorSuffix
+                        }
+                        onInput={(event) =>
+                          patchTemplate(
+                            template.id,
+                            {
+                              monitorSuffix:
+                                event.currentTarget.value,
+                            },
+                          )
+                        }
+                      />
 
-                        <label className="cst-label">
-                          Prefijo del nombre
-                        </label>
+                      <s-text-field
+                        label="Prefijo SKU"
+                        value={
+                          template.skuPrefix
+                        }
+                        onInput={(event) =>
+                          patchTemplate(
+                            template.id,
+                            {
+                              skuPrefix:
+                                event.currentTarget.value,
+                            },
+                          )
+                        }
+                      />
 
-                        <input
-                          className="cst-input"
-                          value={
-                            template.titlePrefix
-                          }
-                          onChange={(event) =>
-                            patchTemplate(
-                              template.id,
+                      <s-select
+                        label="Tipo de producto generado"
+                        value={
+                          template.generatedProductType
+                        }
+                        onChange={(event) =>
+                          patchTemplate(
+                            template.id,
+                            {
+                              generatedProductType:
+                                event.currentTarget.value,
+                            },
+                          )
+                        }
+                      >
+                        <s-option value="">
+                          Seleccionar...
+                        </s-option>
+
+                        {data.productTypes.map(
+                          (productType) => (
+                            <s-option
+                              key={
+                                productType
+                              }
+                              value={
+                                productType
+                              }
+                            >
                               {
-                                titlePrefix:
-                                  event.target.value,
-                              },
-                            )
-                          }
-                        />
+                                productType
+                              }
+                            </s-option>
+                          ),
+                        )}
+                      </s-select>
 
-                      </div>
+                      <s-text-field
+                        label="Proveedor"
+                        value={
+                          template.vendor
+                        }
+                        onInput={(event) =>
+                          patchTemplate(
+                            template.id,
+                            {
+                              vendor:
+                                event.currentTarget.value,
+                            },
+                          )
+                        }
+                      />
 
-                      <div className="cst-field">
+                      <s-text-field
+                        label="Estado inicial"
+                        value="Borrador"
+                        disabled
+                      />
 
-                        <label className="cst-label">
-                          Sufijo del monitor
-                        </label>
+                    </s-grid>
 
-                        <input
-                          className="cst-input"
-                          placeholder="Opcional"
-                          value={
-                            template.monitorSuffix
-                          }
-                          onChange={(event) =>
-                            patchTemplate(
-                              template.id,
-                              {
-                                monitorSuffix:
-                                  event.target.value,
-                              },
-                            )
-                          }
-                        />
+                  </s-query-container>
 
-                      </div>
+                  <s-banner
+                    tone="info"
+                    heading="Vista previa"
+                  >
+                    Nombre:{" "}
+                    {template.titlePrefix ||
+                      "Combo"}{" "}
+                    {"{COMPUTADOR}"} + Monitor{" "}
+                    {"{MONITOR}"}
+                    {template.monitorSuffix
+                      ? ` ${template.monitorSuffix}`
+                      : ""}
+                    {" · "}
+                    SKU:{" "}
+                    {template.skuPrefix}
+                    {"{SKU_PC}"}
+                  </s-banner>
 
-                      <div className="cst-field">
+                </s-stack>
 
-                        <label className="cst-label">
-                          Prefijo SKU
-                        </label>
+              </s-stack>
 
-                        <input
-                          className="cst-input"
-                          value={
-                            template.skuPrefix
-                          }
-                          onChange={(event) =>
-                            patchTemplate(
-                              template.id,
-                              {
-                                skuPrefix:
-                                  event.target.value,
-                              },
-                            )
-                          }
-                        />
-
-                      </div>
-
-                      <div className="cst-field">
-
-                        <label className="cst-label">
-                          Tipo de producto generado
-                        </label>
-
-                        <select
-                          className="cst-select"
-                          value={
-                            template.generatedProductType
-                          }
-                          onChange={(event) =>
-                            patchTemplate(
-                              template.id,
-                              {
-                                generatedProductType:
-                                  event.target.value,
-                              },
-                            )
-                          }
-                        >
-
-                          <option value="">
-                            Seleccionar...
-                          </option>
-
-                          {data.productTypes.map(
-                            (productType) => (
-                              <option
-                                key={
-                                  productType
-                                }
-                                value={
-                                  productType
-                                }
-                              >
-                                {productType}
-                              </option>
-                            ),
-                          )}
-
-                        </select>
-
-                      </div>
-
-                      <div className="cst-field">
-
-                        <label className="cst-label">
-                          Proveedor
-                        </label>
-
-                        <input
-                          className="cst-input"
-                          value={
-                            template.vendor
-                          }
-                          onChange={(event) =>
-                            patchTemplate(
-                              template.id,
-                              {
-                                vendor:
-                                  event.target.value,
-                              },
-                            )
-                          }
-                        />
-
-                      </div>
-
-                      <div className="cst-field">
-
-                        <label className="cst-label">
-                          Estado inicial
-                        </label>
-
-                        <input
-                          className="cst-input"
-                          value="Borrador"
-                          disabled
-                        />
-
-                      </div>
-
-                    </div>
-
-                    <div className="cst-preview">
-
-                      <div className="cst-preview__label">
-                        Vista previa del nombre
-                      </div>
-
-                      <div className="cst-preview__value">
-
-                        {template.titlePrefix ||
-                          "Combo"}{" "}
-
-                        {"{COMPUTADOR}"} + Monitor{" "}
-
-                        {"{MONITOR}"}
-
-                        {template.monitorSuffix
-                          ? ` ${template.monitorSuffix}`
-                          : ""}
-
-                      </div>
-
-                    </div>
-
-                    <div className="cst-preview">
-
-                      <div className="cst-preview__label">
-                        Vista previa SKU
-                      </div>
-
-                      <div className="cst-preview__value">
-                        {template.skuPrefix}
-                        {"{SKU_PC}"}
-                      </div>
-
-                    </div>
-
-                  </div>
-
-                </div>
-
-              </div>
-            ),
-          )}
-
-        </div>
-
-        {/* SAVE */}
+            </s-section>
+          ),
+        )}
 
         <fetcher.Form
           method="post"
@@ -2027,40 +1338,51 @@ export default function Templates() {
             }
           />
 
-          <div className="cst-save-wrap">
+          <s-section heading="Guardar cambios">
 
-            <div
-              className={
-                dirty
-                  ? "cst-save-status cst-save-status--dirty"
-                  : "cst-save-status"
-              }
+            <s-stack
+              direction="inline"
+              gap="base"
+              alignItems="center"
+              justifyContent="space-between"
             >
-              {saving
-                ? "Guardando cambios..."
-                : dirty
-                  ? "Hay cambios sin guardar"
-                  : "Configuración guardada"}
-            </div>
 
-            <button
-              className="cst-save"
-              type="submit"
-              disabled={
-                saving ||
-                !dirty
-              }
-            >
-              {saving
-                ? "Guardando..."
-                : "Guardar plantillas"}
-            </button>
+              <s-badge
+                tone={
+                  saving
+                    ? "info"
+                    : dirty
+                      ? "warning"
+                      : "success"
+                }
+              >
+                {saving
+                  ? "Guardando cambios..."
+                  : dirty
+                    ? "Hay cambios sin guardar"
+                    : "Configuración guardada"}
+              </s-badge>
 
-          </div>
+              <s-button
+                type="submit"
+                variant="primary"
+                disabled={
+                  saving ||
+                  !dirty
+                }
+              >
+                {saving
+                  ? "Guardando..."
+                  : "Guardar plantillas"}
+              </s-button>
+
+            </s-stack>
+
+          </s-section>
 
         </fetcher.Form>
 
-      </div>
+      </s-stack>
 
     </s-page>
   );
@@ -2161,62 +1483,48 @@ function ComponentRuleCard({
     editorId;
 
   return (
-    <div
-      className={
-        editing
-          ? "cst-component cst-component--editing"
-          : "cst-component"
+    <s-section
+      heading={
+        label
       }
     >
 
-      <div className="cst-component__header">
+      <s-badge
+        slot="accessory"
+        tone="neutral"
+      >
+        {rule.conditions.length}{" "}
+        {rule.conditions.length ===
+        1
+          ? "condición"
+          : "condiciones"}
+      </s-badge>
 
-        <div>
+      <s-button
+        slot="primary-action"
+        variant="tertiary"
+        onClick={() =>
+          setEditingRule(
+            editing
+              ? null
+              : editorId,
+          )
+        }
+      >
+        {editing
+          ? "Cerrar"
+          : "Editar"}
+      </s-button>
 
-          <div className="cst-component__title">
-            {label}
-          </div>
+      {!editing ? (
+        <s-stack gap="small">
 
-          <div className="cst-component__count">
-
-            {rule.conditions.length}{" "}
-
-            {rule.conditions.length ===
-            1
-              ? "condición"
-              : "condiciones"}
-
-            {" · "}
-
+          <s-text tone="neutral">
             {rule.match ===
             "all"
-              ? "Todas"
-              : "Cualquiera"}
-
-          </div>
-
-        </div>
-
-        <button
-          type="button"
-          className="cst-edit-button"
-          onClick={() =>
-            setEditingRule(
-              editing
-                ? null
-                : editorId,
-            )
-          }
-        >
-          {editing
-            ? "Cerrar"
-            : "Editar"}
-        </button>
-
-      </div>
-
-      {!editing && (
-        <div className="cst-component__summary">
+              ? "Deben cumplirse todas"
+              : "Puede cumplirse cualquiera"}
+          </s-text>
 
           {rule.conditions
             .slice(
@@ -2225,122 +1533,107 @@ function ComponentRuleCard({
             )
             .map(
               (condition) => (
-                <div
-                  className="cst-summary-item"
+                <s-badge
                   key={
                     condition.id
                   }
+                  tone="neutral"
                 >
                   {summarizeCondition(
                     condition,
                   )}
-                </div>
+                </s-badge>
               ),
             )}
 
           {rule.conditions.length >
             3 && (
-            <div className="cst-summary-item">
+            <s-text tone="neutral">
               +{" "}
               {rule.conditions.length -
                 3}{" "}
               condición(es)
-            </div>
+            </s-text>
           )}
 
-        </div>
-      )}
+        </s-stack>
+      ) : (
+        <s-stack gap="base">
 
-      {editing && (
-        <div className="cst-rule-editor">
+          <s-select
+            label="Cumplir"
+            value={
+              rule.match
+            }
+            onChange={(event) =>
+              patchRule(
+                templateId,
+                ruleKey,
+                (current) => ({
+                  ...current,
 
-          <div className="cst-rule-mode">
+                  match:
+                    event.currentTarget.value ===
+                    "any"
+                      ? "any"
+                      : "all",
+                }),
+              )
+            }
+          >
+            <s-option value="all">
+              Todas las condiciones (AND)
+            </s-option>
+            <s-option value="any">
+              Cualquier condición (OR)
+            </s-option>
+          </s-select>
 
-            <span className="cst-rule-mode__label">
-              Cumplir
-            </span>
+          {rule.conditions.map(
+            (condition) => (
+              <ConditionEditor
+                key={
+                  condition.id
+                }
+                condition={
+                  condition
+                }
+                productTypes={
+                  productTypes
+                }
+                metafields={
+                  metafields
+                }
+                canRemove={
+                  rule.conditions.length >
+                  1
+                }
+                onChange={(patch) =>
+                  patchCondition(
+                    templateId,
+                    ruleKey,
+                    condition.id,
+                    patch,
+                  )
+                }
+                onRemove={() =>
+                  removeCondition(
+                    templateId,
+                    ruleKey,
+                    condition.id,
+                  )
+                }
+              />
+            ),
+          )}
 
-            <select
-              className="cst-select"
-              value={
-                rule.match
-              }
-              onChange={(event) =>
-                patchRule(
-                  templateId,
-                  ruleKey,
-                  (current) => ({
-                    ...current,
+          <s-stack
+            direction="inline"
+            gap="small"
+          >
 
-                    match:
-                      event.target.value ===
-                      "any"
-                        ? "any"
-                        : "all",
-                  }),
-                )
-              }
-            >
-
-              <option value="all">
-                Todas las condiciones (AND)
-              </option>
-
-              <option value="any">
-                Cualquier condición (OR)
-              </option>
-
-            </select>
-
-          </div>
-
-          <div className="cst-condition-list">
-
-            {rule.conditions.map(
-              (condition) => (
-                <ConditionEditor
-                  key={
-                    condition.id
-                  }
-                  condition={
-                    condition
-                  }
-                  productTypes={
-                    productTypes
-                  }
-                  metafields={
-                    metafields
-                  }
-                  canRemove={
-                    rule.conditions.length >
-                    1
-                  }
-                  onChange={(patch) =>
-                    patchCondition(
-                      templateId,
-                      ruleKey,
-                      condition.id,
-                      patch,
-                    )
-                  }
-                  onRemove={() =>
-                    removeCondition(
-                      templateId,
-                      ruleKey,
-                      condition.id,
-                    )
-                  }
-                />
-              ),
-            )}
-
-          </div>
-
-          <div className="cst-rule-actions">
-
-            <button
-              type="button"
-              className="cst-add"
+            <s-button
+              variant="secondary"
               onClick={() =>
                 addCondition(
                   templateId,
@@ -2348,12 +1641,11 @@ function ComponentRuleCard({
                 )
               }
             >
-              + Agregar condición
-            </button>
+              Agregar condición
+            </s-button>
 
-            <button
-              type="button"
-              className="cst-done"
+            <s-button
+              variant="primary"
               onClick={() =>
                 setEditingRule(
                   null,
@@ -2361,14 +1653,14 @@ function ComponentRuleCard({
               }
             >
               Listo
-            </button>
+            </s-button>
 
-          </div>
+          </s-stack>
 
-        </div>
+        </s-stack>
       )}
 
-    </div>
+    </s-section>
   );
 }
 
@@ -2417,25 +1709,6 @@ function ConditionEditor({
   const isMetafield =
     condition.source ===
     "metafield";
-
-  let className =
-    "cst-condition";
-
-  if (
-    isMetafield &&
-    valueRequired
-  ) {
-    className +=
-      " cst-condition--metafield";
-  }
-
-  if (
-    isMetafield &&
-    !valueRequired
-  ) {
-    className +=
-      " cst-condition--metafield-no-value";
-  }
 
   function changeSource(
     source:
@@ -2499,204 +1772,166 @@ function ConditionEditor({
   }
 
   return (
-    <div className={className}>
+    <s-section>
 
-      {/* FIELD */}
+      <s-query-container>
 
-      <div className="cst-condition__field">
-
-        <label>
-          Campo
-        </label>
-
-        <select
-          className="cst-select"
-          value={
-            condition.source
-          }
-          onChange={(event) =>
-            changeSource(
-              event.target
-                .value as RuleConditionSource,
-            )
-          }
+        <s-grid
+          gridTemplateColumns="@container (inline-size > 900px) repeat(4, minmax(0, 1fr)), @container (inline-size > 600px) repeat(2, minmax(0, 1fr)), 1fr"
+          gap="small"
         >
 
-          <option value="product_type">
-            Tipo de producto
-          </option>
-
-          <option value="metafield">
-            Metacampo
-          </option>
-
-          <option value="sku">
-            SKU
-          </option>
-
-          <option value="title">
-            Título
-          </option>
-
-          <option value="vendor">
-            Proveedor
-          </option>
-
-          <option value="status">
-            Estado
-          </option>
-
-          <option value="stock">
-            Stock
-          </option>
-
-          <option value="tag">
-            Tag
-          </option>
-
-        </select>
-
-      </div>
-
-      {/* METAFIELD */}
-
-      {isMetafield && (
-        <div className="cst-condition__field">
-
-          <label>
-            Metacampo
-          </label>
-
-          <select
-            className="cst-select"
+          <s-select
+            label="Campo"
             value={
-              metafieldToValue(
-                condition.metafield,
-              )
+              condition.source
             }
             onChange={(event) =>
-              onChange({
-                metafield:
-                  valueToMetafield(
-                    event.target.value,
-                  ),
-              })
+              changeSource(
+                event.currentTarget
+                  .value as RuleConditionSource,
+              )
             }
           >
+            <s-option value="product_type">
+              Tipo de producto
+            </s-option>
+            <s-option value="metafield">
+              Metacampo
+            </s-option>
+            <s-option value="sku">
+              SKU
+            </s-option>
+            <s-option value="title">
+              Título
+            </s-option>
+            <s-option value="vendor">
+              Proveedor
+            </s-option>
+            <s-option value="status">
+              Estado
+            </s-option>
+            <s-option value="stock">
+              Stock
+            </s-option>
+            <s-option value="tag">
+              Tag
+            </s-option>
+          </s-select>
 
-            <option value="">
-              Seleccionar metacampo...
-            </option>
+          {isMetafield && (
+            <s-select
+              label="Metacampo"
+              value={
+                metafieldToValue(
+                  condition.metafield,
+                )
+              }
+              onChange={(event) =>
+                onChange({
+                  metafield:
+                    valueToMetafield(
+                      event.currentTarget.value,
+                    ),
+                })
+              }
+            >
+              <s-option value="">
+                Seleccionar metacampo...
+              </s-option>
 
-            {metafields.map(
-              (field) => (
-                <option
-                  key={
-                    field.id
-                  }
-                  value={
-                    metafieldToValue({
-                      namespace:
-                        field.namespace,
+              {metafields.map(
+                (field) => (
+                  <s-option
+                    key={
+                      field.id
+                    }
+                    value={
+                      metafieldToValue({
+                        namespace:
+                          field.namespace,
 
-                      key:
-                        field.key,
-                    })
-                  }
-                >
-                  {field.name} ·{" "}
-                  {field.namespace}.
-                  {field.key}
-                </option>
-              ),
-            )}
-
-          </select>
-
-        </div>
-      )}
-
-      {/* OPERATOR */}
-
-      <div className="cst-condition__field">
-
-        <label>
-          Operador
-        </label>
-
-        <select
-          className="cst-select"
-          value={
-            condition.operator
-          }
-          onChange={(event) =>
-            changeOperator(
-              event.target
-                .value as RuleConditionOperator,
-            )
-          }
-        >
-
-          {operators.map(
-            (operator) => (
-              <option
-                key={
-                  operator
-                }
-                value={
-                  operator
-                }
-              >
-                {getOperatorLabel(
-                  operator,
-                )}
-              </option>
-            ),
+                        key:
+                          field.key,
+                      })
+                    }
+                  >
+                    {field.name} ·{" "}
+                    {field.namespace}.
+                    {field.key}
+                  </s-option>
+                ),
+              )}
+            </s-select>
           )}
 
-        </select>
+          <s-select
+            label="Operador"
+            value={
+              condition.operator
+            }
+            onChange={(event) =>
+              changeOperator(
+                event.currentTarget
+                  .value as RuleConditionOperator,
+              )
+            }
+          >
+            {operators.map(
+              (operator) => (
+                <s-option
+                  key={
+                    operator
+                  }
+                  value={
+                    operator
+                  }
+                >
+                  {getOperatorLabel(
+                    operator,
+                  )}
+                </s-option>
+              ),
+            )}
+          </s-select>
 
-      </div>
+          {valueRequired && (
+            <ConditionValueEditor
+              condition={
+                condition
+              }
+              productTypes={
+                productTypes
+              }
+              onChange={(value) =>
+                onChange({
+                  value,
+                })
+              }
+            />
+          )}
 
-      {/* VALUE */}
+        </s-grid>
 
-      {valueRequired && (
-        <ConditionValueEditor
-          condition={
-            condition
+      </s-query-container>
+
+      <s-box paddingBlockStart="small">
+
+        <s-button
+          variant="tertiary"
+          disabled={
+            !canRemove
           }
-          productTypes={
-            productTypes
+          onClick={
+            onRemove
           }
-          onChange={(value) =>
-            onChange({
-              value,
-            })
-          }
-        />
-      )}
+        >
+          Eliminar condición
+        </s-button>
 
-      {/* REMOVE */}
+      </s-box>
 
-      <button
-        type="button"
-        className="cst-remove"
-        disabled={
-          !canRemove
-        }
-        title={
-          canRemove
-            ? "Eliminar condición"
-            : "Debe existir al menos una condición"
-        }
-        onClick={
-          onRemove
-        }
-      >
-        Eliminar
-      </button>
-
-    </div>
+    </s-section>
   );
 }
 
@@ -2725,46 +1960,38 @@ function ConditionValueEditor({
     "product_type"
   ) {
     return (
-      <div className="cst-condition__field">
+      <s-select
+        label="Tipo de producto"
+        value={
+          condition.value
+        }
+        onChange={(event) =>
+          onChange(
+            event.currentTarget.value,
+          )
+        }
+      >
+        <s-option value="">
+          Seleccionar...
+        </s-option>
 
-        <label>
-          Tipo de producto
-        </label>
-
-        <select
-          className="cst-select"
-          value={
-            condition.value
-          }
-          onChange={(event) =>
-            onChange(
-              event.target.value,
-            )
-          }
-        >
-
-          <option value="">
-            Seleccionar...
-          </option>
-
-          {productTypes.map(
-            (productType) => (
-              <option
-                key={
-                  productType
-                }
-                value={
-                  productType
-                }
-              >
-                {productType}
-              </option>
-            ),
-          )}
-
-        </select>
-
-      </div>
+        {productTypes.map(
+          (productType) => (
+            <s-option
+              key={
+                productType
+              }
+              value={
+                productType
+              }
+            >
+              {
+                productType
+              }
+            </s-option>
+          ),
+        )}
+      </s-select>
     );
   }
 
@@ -2773,43 +2000,30 @@ function ConditionValueEditor({
     "status"
   ) {
     return (
-      <div className="cst-condition__field">
-
-        <label>
-          Estado
-        </label>
-
-        <select
-          className="cst-select"
-          value={
-            condition.value
-          }
-          onChange={(event) =>
-            onChange(
-              event.target.value,
-            )
-          }
-        >
-
-          <option value="ACTIVE">
-            Activo
-          </option>
-
-          <option value="DRAFT">
-            Borrador
-          </option>
-
-          <option value="ARCHIVED">
-            Archivado
-          </option>
-
-          <option value="UNLISTED">
-            No listado
-          </option>
-
-        </select>
-
-      </div>
+      <s-select
+        label="Estado"
+        value={
+          condition.value
+        }
+        onChange={(event) =>
+          onChange(
+            event.currentTarget.value,
+          )
+        }
+      >
+        <s-option value="ACTIVE">
+          Activo
+        </s-option>
+        <s-option value="DRAFT">
+          Borrador
+        </s-option>
+        <s-option value="ARCHIVED">
+          Archivado
+        </s-option>
+        <s-option value="UNLISTED">
+          No listado
+        </s-option>
+      </s-select>
     );
   }
 
@@ -2818,26 +2032,19 @@ function ConditionValueEditor({
     "stock"
   ) {
     return (
-      <div className="cst-condition__field">
-
-        <label>
-          Cantidad
-        </label>
-
-        <input
-          className="cst-input"
-          type="number"
-          value={
-            condition.value
-          }
-          onChange={(event) =>
-            onChange(
-              event.target.value,
-            )
-          }
-        />
-
-      </div>
+      <s-number-field
+        label="Cantidad"
+        value={
+          condition.value
+        }
+        min={0}
+        step={1}
+        onChange={(event) =>
+          onChange(
+            event.currentTarget.value,
+          )
+        }
+      />
     );
   }
 
@@ -2857,28 +2064,20 @@ function ConditionValueEditor({
             : "Valor esperado";
 
   return (
-    <div className="cst-condition__field">
-
-      <label>
-        Valor
-      </label>
-
-      <input
-        className="cst-input"
-        placeholder={
-          placeholder
-        }
-        value={
-          condition.value
-        }
-        onChange={(event) =>
-          onChange(
-            event.target.value,
-          )
-        }
-      />
-
-    </div>
+    <s-text-field
+      label="Valor"
+      placeholder={
+        placeholder
+      }
+      value={
+        condition.value
+      }
+      onInput={(event) =>
+        onChange(
+          event.currentTarget.value,
+        )
+      }
+    />
   );
 }
 
@@ -2906,59 +2105,51 @@ function MetafieldSelector({
   ) => void;
 }) {
   return (
-    <div className="cst-field">
-
-      <label className="cst-label">
-        {label}
-      </label>
-
-      <select
-        className="cst-select"
-        value={
-          metafieldToValue(
-            value,
-          )
-        }
-        onChange={(event) =>
-          onChange(
-            valueToMetafield(
-              event.target.value,
-            ),
-          )
-        }
-      >
-
-        <option value="">
-          Seleccionar metacampo...
-        </option>
-
-        {metafields.map(
-          (field) => (
-            <option
-              key={
-                field.id
-              }
-              value={
-                metafieldToValue({
-                  namespace:
-                    field.namespace,
-
-                  key:
-                    field.key,
-                })
-              }
-            >
-              {field.name} ·{" "}
-              {field.namespace}.
-              {field.key} ·{" "}
-              {field.type}
-            </option>
+    <s-select
+      label={
+        label
+      }
+      value={
+        metafieldToValue(
+          value,
+        )
+      }
+      onChange={(event) =>
+        onChange(
+          valueToMetafield(
+            event.currentTarget.value,
           ),
-        )}
+        )
+      }
+    >
+      <s-option value="">
+        Seleccionar metacampo...
+      </s-option>
 
-      </select>
+      {metafields.map(
+        (field) => (
+          <s-option
+            key={
+              field.id
+            }
+            value={
+              metafieldToValue({
+                namespace:
+                  field.namespace,
 
-    </div>
+                key:
+                  field.key,
+              })
+            }
+          >
+            {field.name} ·{" "}
+            {field.namespace}.
+            {field.key} ·{" "}
+            {field.type}
+          </s-option>
+        ),
+      )}
+    </s-select>
   );
 }
 
