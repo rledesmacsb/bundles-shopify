@@ -2121,37 +2121,153 @@ export default function Bundles() {
         }
 
         @media (max-width: 760px) {
+          .csb-page {
+            padding-bottom: 16px;
+          }
+
           .csb-hero {
             align-items: stretch;
             flex-direction: column;
+            gap: 10px;
+            margin-bottom: 14px;
+          }
+
+          .csb-title {
+            font-size: 19px;
+          }
+
+          .csb-description {
+            font-size: 11.5px;
           }
 
           .csb-hero-meta {
-            justify-content: flex-start;
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 5px;
+            justify-content: stretch;
+            font-size: 10px;
+          }
+
+          .csb-index {
+            margin-inline: -2px;
+            border-radius: 10px;
+          }
+
+          .csb-views {
+            gap: 4px;
+            padding: 9px 10px;
+            scrollbar-width: none;
+            scroll-snap-type: x proximity;
+          }
+
+          .csb-views::-webkit-scrollbar {
+            display: none;
+          }
+
+          .csb-view {
+            min-height: 38px;
+            padding: 7px 11px;
+            scroll-snap-align: start;
           }
 
           .csb-controls {
             grid-template-columns: 1fr;
+            gap: 8px;
+            padding: 10px;
           }
 
-          .csb-selection-bar,
-          .csb-footer {
+          .csb-control {
+            height: 42px;
+            font-size: 12px;
+          }
+
+          .csb-selection-bar {
+            position: sticky;
+            bottom: 0;
+            z-index: 20;
             align-items: stretch;
             flex-direction: column;
+            gap: 8px;
+            padding: 10px;
+            box-shadow: 0 -3px 10px rgba(31, 33, 36, .07);
+          }
+
+          .csb-primary-button,
+          .csb-secondary-button {
+            min-height: 42px;
+          }
+
+          .csb-bulk-progress {
+            padding: 10px;
           }
 
           .csb-table-row,
           .csb-excluded-row {
             grid-template-columns:
-              28px
+              24px
               minmax(0, 1fr);
             gap: 8px 10px;
+            min-height: 0;
+            padding: 13px 10px;
           }
 
           .csb-table-row > :nth-child(n+3),
           .csb-excluded-row > :nth-child(n+3) {
             grid-column: 2;
+            display: grid;
+            grid-template-columns:
+              82px
+              minmax(0, 1fr);
+            gap: 8px;
+            align-items: center;
             text-align: left;
+          }
+
+          .csb-table-row > :nth-child(3)::before {
+            content: "Precio";
+          }
+
+          .csb-table-row > :nth-child(4)::before {
+            content: "Ahorro";
+          }
+
+          .csb-table-row > :nth-child(5)::before,
+          .csb-excluded-row > :nth-child(5)::before {
+            content: "Disponibles";
+          }
+
+          .csb-table-row > :nth-child(6)::before,
+          .csb-excluded-row > :nth-child(6)::before {
+            content: "Estado";
+          }
+
+          .csb-table-row > :nth-child(7)::before,
+          .csb-excluded-row > :nth-child(7)::before {
+            content: "Acción";
+          }
+
+          .csb-table-row > :nth-child(n+3)::before,
+          .csb-excluded-row > :nth-child(n+3)::before {
+            color: #8a939d;
+            font-size: 9px;
+            font-weight: 700;
+            letter-spacing: .035em;
+            text-transform: uppercase;
+          }
+
+          .csb-excluded-row > :nth-child(3),
+          .csb-excluded-row > :nth-child(4) {
+            display: none;
+          }
+
+          .csb-base-title {
+            white-space: normal;
+            font-size: 12px;
+          }
+
+          .csb-monitor-title {
+            white-space: normal;
+            font-size: 10.5px;
           }
 
           .csb-number,
@@ -2161,6 +2277,52 @@ export default function Bundles() {
 
           .csb-row-action {
             justify-content: flex-start;
+          }
+
+          .csb-row-action .csb-link-button {
+            min-height: 36px;
+            padding: 5px 0;
+            text-align: left;
+          }
+
+          .csb-footer {
+            align-items: stretch;
+            flex-direction: column;
+            gap: 8px;
+            padding: 10px;
+          }
+
+          .csb-pagination {
+            justify-content: space-between;
+          }
+
+          .csb-pagination button {
+            min-height: 38px;
+            padding-inline: 12px;
+          }
+
+          .csb-drawer {
+            left: 0;
+            width: 100vw;
+            border-left: 0;
+          }
+
+          .csb-drawer__header {
+            padding: 14px;
+          }
+
+          .csb-drawer__body {
+            padding: 14px;
+          }
+
+          .csb-close {
+            width: 38px;
+            height: 38px;
+          }
+
+          .csb-detail-actions button,
+          .csb-detail-actions a {
+            min-height: 42px;
           }
         }
       `}</style>
