@@ -565,21 +565,114 @@ export default function Problems() {
         }
 
         @media (max-width: 700px) {
+          .csb-problems {
+            padding-bottom: 16px;
+          }
+
+          .csb-problems-heading {
+            margin-bottom: 12px;
+            padding-top: 0;
+          }
+
+          .csb-problems-title {
+            font-size: 19px;
+          }
+
+          .csb-problems-description {
+            font-size: 11.5px;
+          }
+
+          .csb-kpis {
+            display: flex;
+            gap: 8px;
+            margin: 0 -2px 12px;
+            padding: 0 2px 2px;
+            overflow-x: auto;
+            scroll-snap-type: x proximity;
+            scrollbar-width: none;
+          }
+
+          .csb-kpis::-webkit-scrollbar {
+            display: none;
+          }
+
+          .csb-kpi {
+            flex: 0 0 145px;
+            min-height: 82px;
+            padding: 13px;
+            border-radius: 10px;
+            scroll-snap-align: start;
+          }
+
+          .csb-kpi__label {
+            font-size: 10px;
+            line-height: 1.25;
+          }
+
+          .csb-kpi__value {
+            font-size: 21px;
+          }
+
           .csb-toolbar {
             align-items: stretch;
             flex-direction: column;
+            gap: 8px;
+            margin-bottom: 10px;
+            padding: 10px;
+            border-radius: 10px;
+          }
+
+          .csb-filters {
+            flex-wrap: nowrap;
+            margin-inline: -2px;
+            padding: 0 2px 2px;
+            overflow-x: auto;
+            scrollbar-width: none;
+          }
+
+          .csb-filters::-webkit-scrollbar {
+            display: none;
+          }
+
+          .csb-filter {
+            flex: 0 0 auto;
+            min-height: 38px;
           }
 
           .csb-search {
             width: 100%;
+            min-height: 42px;
           }
 
-          .csb-kpis {
+          .csb-list {
+            gap: 8px;
+          }
+
+          .csb-product {
             grid-template-columns:
-              repeat(
-                2,
-                minmax(0, 1fr)
-              );
+              1fr;
+            gap: 10px;
+            padding: 13px;
+            border-radius: 10px;
+          }
+
+          .csb-product__title {
+            font-size: 12px;
+          }
+
+          .csb-problem,
+          .csb-ready-message {
+            font-size: 10.5px;
+          }
+
+          .csb-edit {
+            width: 100%;
+            min-height: 42px;
+            justify-self: stretch;
+          }
+
+          .csb-empty {
+            padding: 28px 16px;
           }
         }
       `}</style>
