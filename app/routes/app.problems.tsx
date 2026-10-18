@@ -18,9 +18,12 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 
 import {
-  loadBundleDiagnostics,
   type ProductDiagnostic,
 } from "../lib/bundle-diagnostics.server";
+
+import {
+  loadCachedBundleDiagnostics,
+} from "../lib/bundle-cache.server";
 
 /* =========================================================
    LOADER
@@ -39,8 +42,9 @@ export const loader =
       );
 
     const diagnostics =
-      await loadBundleDiagnostics(
+      await loadCachedBundleDiagnostics(
         admin,
+        session.shop,
       );
 
     return {
