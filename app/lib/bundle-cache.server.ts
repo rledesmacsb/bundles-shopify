@@ -29,6 +29,11 @@ import {
   loadBundleTemplateSettings,
 } from "./bundle-templates.server";
 
+import {
+  loadBundleReadiness,
+  type BundleReadiness,
+} from "./bundle-readiness.server";
+
 import type {
   TemplateBundleCandidate,
 } from "./bundle-template-engine";
@@ -74,6 +79,9 @@ const LEGACY_DATA_TTL_MS =
 
 const EXISTING_BUNDLES_TTL_MS =
   12_000;
+
+const READINESS_TTL_MS =
+  15_000;
 
 function cleanupExpiredEntries() {
   if (
@@ -391,5 +399,22 @@ export function loadCachedExistingBundleMatches(
         admin,
         candidates,
       ),
+  );
+}
+
+/**
+ * Targeted, short-lived Shopify lookup for the actual bundle components.
+ * Invalidated with the rest of the app cache after a bundle mutation.
+ */
+export function loadCachedBundleReadiness(
+  admin: AdminClient,
+  shop: string,
+  candidates: TemplateBundleCandidate[],
+): Promise<BundleReadiness> {
+  const signature = candidateSignature(candidates);
+  return readThroughCache(
+    `bundle:${shopKey(shop)}:readiness:${signature}`,
+    READINESS_TTL_MS,
+    () => loadBundleReadiness(admin, candidates),
   );
 }
