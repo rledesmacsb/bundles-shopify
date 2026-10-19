@@ -615,7 +615,7 @@ export default function Problems() {
                             variant="tertiary"
                             href={`shopify:admin/products/${productNumericId(item.id)}`}
                           >
-                            Corregir en Shopify
+                            Editar en Shopify
                           </s-button>
                         </s-table-cell>
                       </s-table-row>
@@ -785,7 +785,7 @@ export default function Problems() {
                             editUrl
                           }
                         >
-                          Editar
+                          Editar en Shopify
                         </s-button>
 
                       </s-table-cell>
