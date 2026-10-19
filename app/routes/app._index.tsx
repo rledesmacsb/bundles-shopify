@@ -139,6 +139,58 @@ export default function Index() {
 
       <s-stack gap="base">
 
+        <style>{`
+          .csb-summary-metrics {
+            display: grid;
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+            gap: 12px;
+          }
+          .csb-summary-metrics > s-section {
+            min-width: 0;
+            height: 100%;
+          }
+          .csb-summary-content {
+            display: grid;
+            grid-template-columns: minmax(0, 1.7fr) minmax(300px, 1fr);
+            align-items: start;
+            gap: 16px;
+          }
+          .csb-summary-content > s-section {
+            min-width: 0;
+          }
+          .csb-summary-alert-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+          }
+          .csb-summary-alert-grid > s-banner {
+            min-width: 0;
+          }
+          @media (max-width: 1199px) {
+            .csb-summary-metrics {
+              grid-template-columns: repeat(3, minmax(0, 1fr));
+            }
+            .csb-summary-alert-grid {
+              grid-template-columns: 1fr;
+            }
+          }
+          @media (max-width: 949px) {
+            .csb-summary-content {
+              grid-template-columns: minmax(0, 1fr);
+            }
+          }
+          @media (max-width: 719px) {
+            .csb-summary-metrics {
+              grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+          }
+          @media (max-width: 359px) {
+            .csb-summary-metrics {
+              grid-template-columns: minmax(0, 1fr);
+            }
+          }
+        `}</style>
+
         <s-section>
 
           <s-paragraph>
@@ -147,12 +199,7 @@ export default function Index() {
 
         </s-section>
 
-        <s-query-container>
-
-          <s-grid
-            gridTemplateColumns="@container (inline-size > 1050px) repeat(5, 1fr), @container (inline-size > 620px) repeat(3, 1fr), repeat(2, 1fr)"
-            gap="base"
-          >
+        <div className="csb-summary-metrics">
 
             <s-section>
               <s-stack gap="small">
@@ -234,16 +281,11 @@ export default function Index() {
               </s-stack>
             </s-section>
 
-          </s-grid>
+        </div>
 
-        </s-query-container>
+        <div className="csb-summary-content">
 
-        <s-query-container>
 
-          <s-grid
-            gridTemplateColumns="@container (inline-size > 900px) minmax(0, 1.5fr) minmax(320px, .75fr), 1fr"
-            gap="base"
-          >
 
             <s-section heading="Estado de los productos">
 
@@ -256,7 +298,7 @@ export default function Index() {
                   No se detectaron problemas que impidan generar Bundles.
                 </s-banner>
               ) : (
-                <s-stack gap="small">
+                <div className="csb-summary-alert-grid">
 
                   {diagnostics.missingWifiCount >
                     0 && (
@@ -312,7 +354,7 @@ export default function Index() {
                     </s-banner>
                   )}
 
-                </s-stack>
+                </div>
               )}
 
             </s-section>
@@ -460,9 +502,7 @@ export default function Index() {
 
             </s-section>
 
-          </s-grid>
-
-        </s-query-container>
+        </div>
 
       </s-stack>
 
