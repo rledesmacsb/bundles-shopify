@@ -1211,6 +1211,8 @@ export default function Bundles() {
                 "";
 
               return [
+                candidate.identity.title,
+                match.existingProduct?.title ?? "",
                 candidate
                   .baseProduct
                   .title,
@@ -1289,15 +1291,10 @@ export default function Bundles() {
               return stockDifference;
             }
 
-            return a
-              .baseProduct
-              .title
-              .localeCompare(
-                b
-                  .baseProduct
-                  .title,
-                "es",
-              );
+            return a.identity.title.localeCompare(
+              b.identity.title,
+              "es",
+            );
           },
         );
       },
@@ -2017,7 +2014,7 @@ export default function Bundles() {
                       <s-stack key={item.candidateId} gap="small">
                         <s-text>
                           <strong>
-                            {candidate?.baseProduct.title ?? "Propuesta"}
+                            {candidate?.identity.title ?? "Propuesta"}
                           </strong>
                         </s-text>
                         <s-paragraph>
@@ -2301,19 +2298,16 @@ export default function Bundles() {
                             <div className="csb-native-bundle-title">
 
                               <s-text>
-                                {
-                                  candidate
-                                    .baseProduct
-                                    .title
-                                }
+                                <strong>
+                                  {match.existingProduct?.title || candidate.identity.title}
+                                </strong>
                               </s-text>
 
                               <div className="csb-native-bundle-secondary">
-                                {
-                                  candidate
-                                    .monitor
-                                    .title
-                                }
+                                SKU: {match.existingProduct?.sku || candidate.identity.sku}
+                                {" · "}
+                                PC + monitor + teclado y mouse
+                                {candidate.wifiAdapter ? " + adaptador Wi-Fi" : ""}
                               </div>
 
                               {isReviewStatus(match.status) && (
@@ -2778,11 +2772,7 @@ export default function Bundles() {
               <s-stack gap="small">
 
                 <s-heading>
-                  {
-                    detailCandidate
-                      .baseProduct
-                      .title
-                  }
+                  {detailMatch.existingProduct?.title || detailCandidate.identity.title}
                 </s-heading>
 
                 <s-text tone="neutral">
