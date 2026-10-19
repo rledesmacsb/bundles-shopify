@@ -49,6 +49,7 @@ import {
   loadCachedBundleRuntimeSettings,
   loadCachedBundleTemplateCatalog,
   loadCachedExistingBundleMatches,
+  loadCachedBundleReadiness,
 } from "../lib/bundle-cache.server";
 
 import {
@@ -100,12 +101,18 @@ export const loader =
         runtime.componentConfig,
       );
 
-    const existingBundleMatches =
-      await loadCachedExistingBundleMatches(
+    const [existingBundleMatches, readiness] = await Promise.all([
+      loadCachedExistingBundleMatches(
         admin,
         session.shop,
         state.candidates,
-      );
+      ),
+      loadCachedBundleReadiness(
+        admin,
+        session.shop,
+        state.candidates,
+      ),
+    ]);
 
     return {
       catalog,
@@ -113,6 +120,8 @@ export const loader =
       runtime,
 
       existingBundleMatches,
+
+      readiness,
     };
   };
 
@@ -1050,11 +1059,39 @@ export default function Bundles() {
 
   const allMatches = Array.from(matchByCandidateId.values());
 
+  const readinessByCandidateId = useMemo(() => {
+    const indexed = new Map<string, typeof data.readiness.issues>();
+    for (const issue of data.readiness.issues) {
+      const existing = indexed.get(issue.candidateId) ?? [];
+      indexed.set(issue.candidateId, [...existing, issue]);
+    }
+    return indexed;
+  }, [data.readiness.issues]);
+
+  const readinessUnavailable = data.readiness.errors.length > 0;
+
+  const needsComponentReview = (candidateId: string) =>
+    readinessUnavailable ||
+    (readinessByCandidateId.get(candidateId)?.length ?? 0) > 0;
+
+  const isCandidateReady = (candidateId: string) =>
+    matchByCandidateId.get(candidateId)?.status === "new" &&
+    !needsComponentReview(candidateId);
+
+  const needsCandidateReview = (candidateId: string) => {
+    const match = matchByCandidateId.get(candidateId);
+    return Boolean(
+      match &&
+      (isReviewStatus(match.status) ||
+        (match.status === "new" && needsComponentReview(candidateId))),
+    );
+  };
+
   const createCount =
-    allMatches.filter((match) => match.status === "new").length;
+    allMatches.filter((match) => isCandidateReady(match.candidateId)).length;
 
   const reviewCount =
-    allMatches.filter((match) => isReviewStatus(match.status)).length +
+    allMatches.filter((match) => needsCandidateReview(match.candidateId)).length +
     state.multiVariantBaseProducts.length;
 
   const publishedCount =
@@ -1099,11 +1136,11 @@ export default function Bundles() {
                 return false;
               }
 
-              if (view === "create" && match.status !== "new") {
+              if (view === "create" && !isCandidateReady(candidate.id)) {
                 return false;
               }
 
-              if (view === "review" && !isReviewStatus(match.status)) {
+              if (view === "review" && !needsCandidateReview(candidate.id)) {
                 return false;
               }
 
@@ -1343,10 +1380,9 @@ export default function Bundles() {
     pagedCandidates
       .filter(
         (candidate) =>
-          matchByCandidateId.get(
+          isCandidateReady(
             candidate.id,
-          )?.status ===
-          "new",
+          ),
       )
       .map(
         (candidate) =>
@@ -1360,10 +1396,9 @@ export default function Bundles() {
           selectedCandidateIds.has(
             candidate.id,
           ) &&
-          matchByCandidateId.get(
+          isCandidateReady(
             candidate.id,
-          )?.status ===
-            "new",
+          ),
       )
       .map(
         (candidate) =>
@@ -1811,6 +1846,18 @@ export default function Bundles() {
           </s-banner>
         )}
 
+        {readinessUnavailable && (
+          <s-banner
+            heading="No se pudo validar la información de los componentes"
+            tone="critical"
+          >
+            <s-paragraph>
+              Se bloqueó la creación preventiva de Bundles hasta comprobar el catálogo.
+              {data.readiness.errors.join(" · ")}
+            </s-paragraph>
+          </s-banner>
+        )}
+
         {state.issues.length >
           0 && (
           <s-banner
@@ -2234,8 +2281,7 @@ export default function Bundles() {
                             alignItems="center"
                           >
 
-                            {match.status ===
-                              "new" && (
+                            {isCandidateReady(candidate.id) && (
                               <s-checkbox
                                 checked={
                                   selected
@@ -2270,15 +2316,26 @@ export default function Bundles() {
                                 }
                               </div>
 
-                              {isReviewStatus(
-                                match.status,
-                              ) && (
+                              {isReviewStatus(match.status) && (
                                 <div className="csb-native-warning">
-                                  {
-                                    match.message
-                                  }
+                                  {match.message}
                                 </div>
                               )}
+
+                              {match.status === "new" &&
+                                needsComponentReview(candidate.id) && (
+                                  <div className="csb-native-warning">
+                                    {readinessUnavailable
+                                      ? "No fue posible validar los componentes."
+                                      : (readinessByCandidateId.get(candidate.id) ?? [])
+                                          .map((issue) => issue.message)
+                                          .join(" · ")}
+                                    {" "}
+                                    <s-link href="/app/problems?filter=component_data">
+                                      Ver en Productos con problemas
+                                    </s-link>
+                                  </div>
+                                )}
 
                             </div>
 
@@ -2354,25 +2411,22 @@ export default function Bundles() {
                               </s-badge>
 
                             </div>
+                          ) : needsCandidateReview(candidate.id) &&
+                            match.status === "new" ? (
+                            <s-badge tone="warning">Faltan datos</s-badge>
                           ) : (
                             <s-badge
                               tone={
                                 getWorkflowStatusTone(
                                   match.status,
-                                  match
-                                    .existingProduct
-                                    ?.publishedAt,
+                                  match.existingProduct?.publishedAt,
                                 )
                               }
                             >
-                              {
-                                getWorkflowStatusLabel(
-                                  match.status,
-                                  match
-                                    .existingProduct
-                                    ?.publishedAt,
-                                )
-                              }
+                              {getWorkflowStatusLabel(
+                                match.status,
+                                match.existingProduct?.publishedAt,
+                              )}
                             </s-badge>
                           )}
 
@@ -2999,8 +3053,29 @@ export default function Bundles() {
 
               <s-stack gap="small">
 
-                {detailMatch.status ===
-                  "new" && (
+                {detailMatch.status === "new" &&
+                  needsComponentReview(detailCandidate.id) && (
+                    <s-banner heading="Faltan datos para crear este Bundles" tone="warning">
+                      <s-stack gap="small">
+                        {(readinessByCandidateId.get(detailCandidate.id) ?? [])
+                          .map((issue, index) => (
+                            <s-paragraph key={index}>
+                              {issue.message}: {issue.componentTitle}
+                            </s-paragraph>
+                          ))}
+                        {readinessUnavailable && (
+                          <s-paragraph>
+                            No se pudo consultar Shopify para verificar los componentes.
+                          </s-paragraph>
+                        )}
+                        <s-link href="/app/problems?filter=component_data">
+                          Ir a Productos con problemas
+                        </s-link>
+                      </s-stack>
+                    </s-banner>
+                  )}
+
+                {isCandidateReady(detailCandidate.id) && (
                   <fetcher.Form
                     method="post"
                     onSubmit={() =>
