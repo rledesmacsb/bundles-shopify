@@ -23,7 +23,12 @@ import {
 
 import {
   loadCachedBundleDiagnostics,
+  loadCachedBundleReadiness,
+  loadCachedBundleRuntimeSettings,
+  loadCachedBundleTemplateCatalog,
 } from "../lib/bundle-cache.server";
+
+import { buildTemplateBundleState } from "../lib/bundle-template-engine";
 
 /* =========================================================
    LOADER
@@ -41,16 +46,28 @@ export const loader =
         request,
       );
 
-    const diagnostics =
-      await loadCachedBundleDiagnostics(
-        admin,
-        session.shop,
-      );
+    const [diagnostics, catalog, runtime] = await Promise.all([
+      loadCachedBundleDiagnostics(admin, session.shop),
+      loadCachedBundleTemplateCatalog(admin, session.shop),
+      loadCachedBundleRuntimeSettings(admin, session.shop),
+    ]);
+
+    const state = buildTemplateBundleState(
+      catalog.products,
+      catalog.templates,
+      runtime.componentConfig,
+    );
+
+    const readiness = await loadCachedBundleReadiness(
+      admin,
+      session.shop,
+      state.candidates,
+    );
 
     return {
       diagnostics,
-      shopDomain:
-        session.shop,
+      readiness,
+      shopDomain: session.shop,
     };
   };
 
@@ -92,6 +109,7 @@ function getStatusLabel(
 export default function Problems() {
   const {
     diagnostics,
+    readiness,
     shopDomain,
   } =
     useLoaderData<
@@ -129,6 +147,7 @@ export default function Problems() {
       "missing_data",
       "missing_wifi",
       "missing_video",
+      "component_data",
       "no_monitor",
       "ready",
     ].includes(
@@ -136,6 +155,51 @@ export default function Problems() {
     )
       ? rawFilter
       : "attention";
+
+  const componentProblems = useMemo(() => {
+    const grouped = new Map<string, {
+      id: string;
+      title: string;
+      role: string;
+      messages: string[];
+      affectedPcIds: Set<string>;
+    }>();
+
+    for (const issue of readiness.issues) {
+      const existing = grouped.get(issue.componentId) ?? {
+        id: issue.componentId,
+        title: issue.componentTitle,
+        role: issue.role,
+        messages: [],
+        affectedPcIds: new Set<string>(),
+      };
+
+      if (!existing.messages.includes(issue.message)) {
+        existing.messages.push(issue.message);
+      }
+      existing.affectedPcIds.add(issue.baseProductId);
+      grouped.set(issue.componentId, existing);
+    }
+
+    return Array.from(grouped.values());
+  }, [readiness.issues]);
+
+  const visibleComponentProblems = useMemo(() => {
+    const query = search.trim().toLocaleLowerCase("es");
+    return componentProblems.filter((item) =>
+      !query ||
+      item.title.toLocaleLowerCase("es").includes(query) ||
+      item.role.toLocaleLowerCase("es").includes(query) ||
+      item.messages.some((message) =>
+        message.toLocaleLowerCase("es").includes(query),
+      ),
+    );
+  }, [componentProblems, search]);
+
+  const showComponentProblems =
+    filter === "attention" ||
+    filter === "component_data" ||
+    filter === "all";
 
   /* =======================================================
      FILTER
@@ -146,6 +210,13 @@ export default function Problems() {
       let result = [
         ...diagnostics.products,
       ];
+
+      if (
+        filter ===
+        "component_data"
+      ) {
+        result = [];
+      }
 
       if (
         filter ===
@@ -372,6 +443,69 @@ export default function Problems() {
 
         </s-query-container>
 
+        {readiness.errors.length > 0 && (
+          <s-banner heading="No se pudo verificar el estado de los componentes" tone="critical">
+            <s-paragraph>
+              No se considerarán listos los Bundles hasta validar esta información.
+              {readiness.errors.join(" · ")}
+            </s-paragraph>
+          </s-banner>
+        )}
+
+        {showComponentProblems && (
+          <s-section heading={`Componentes con problemas (${componentProblems.length})`}>
+            <s-stack gap="base">
+              <s-paragraph>
+                Información faltante en los productos seleccionados para formar Bundles.
+                Corrige el producto indicado en Shopify antes de intentar crearlo.
+              </s-paragraph>
+              {visibleComponentProblems.length > 0 ? (
+                <s-table>
+                  <s-table-header-row>
+                    <s-table-header listSlot="primary">Componente</s-table-header>
+                    <s-table-header listSlot="labeled">Problema</s-table-header>
+                    <s-table-header listSlot="labeled" format="numeric">PC afectados</s-table-header>
+                    <s-table-header listSlot="secondary">Acción</s-table-header>
+                  </s-table-header-row>
+                  <s-table-body>
+                    {visibleComponentProblems.map((item) => (
+                      <s-table-row key={item.id}>
+                        <s-table-cell>
+                          <s-stack gap="small">
+                            <s-text>{item.title}</s-text>
+                            <s-text tone="neutral">{item.role}</s-text>
+                          </s-stack>
+                        </s-table-cell>
+                        <s-table-cell>
+                          <s-text tone="warning">
+                            {item.messages.join(" · ")}
+                          </s-text>
+                        </s-table-cell>
+                        <s-table-cell>{item.affectedPcIds.size}</s-table-cell>
+                        <s-table-cell>
+                          <s-button
+                            variant="tertiary"
+                            href={`shopify:admin/products/${productNumericId(item.id)}`}
+                          >
+                            Corregir en Shopify
+                          </s-button>
+                        </s-table-cell>
+                      </s-table-row>
+                    ))}
+                  </s-table-body>
+                </s-table>
+              ) : (
+                <s-text tone="neutral">
+                  {readiness.errors.length > 0
+                    ? "No fue posible comprobar los componentes."
+                    : "No hay componentes con información faltante."}
+                </s-text>
+              )}
+            </s-stack>
+          </s-section>
+        )}
+
+        {filter !== "component_data" && (
         <s-section
           padding="none"
           accessibilityLabel="Diagnóstico de productos"
@@ -424,6 +558,9 @@ export default function Problems() {
                   </s-option>
                   <s-option value="missing_video">
                     Salidas de video
+                  </s-option>
+                  <s-option value="component_data">
+                    Datos de componentes
                   </s-option>
                   <s-option value="no_monitor">
                     Sin compatibilidad
@@ -619,6 +756,7 @@ export default function Problems() {
           </s-box>
 
         </s-section>
+        )}
 
       </s-stack>
 
