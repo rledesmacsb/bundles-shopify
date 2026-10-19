@@ -1,440 +1,248 @@
-import {
-  useMemo,
-  useState,
-} from "react";
-
-import type {
-  HeadersFunction,
-  LoaderFunctionArgs,
-} from "react-router";
-
-import {
-  useLoaderData,
-  useSearchParams,
-} from "react-router";
-
+import { useMemo, useState } from "react";
+import type { HeadersFunction, LoaderFunctionArgs } from "react-router";
+import { useLoaderData, useSearchParams } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
-
 import { authenticate } from "../shopify.server";
-
-import {
-  type ProductDiagnostic,
-} from "../lib/bundle-diagnostics.server";
-
 import {
   loadCachedBundleDiagnostics,
   loadCachedBundleReadiness,
   loadCachedBundleRuntimeSettings,
   loadCachedBundleTemplateCatalog,
 } from "../lib/bundle-cache.server";
-
 import { buildTemplateBundleState } from "../lib/bundle-template-engine";
 
-/* =========================================================
-   LOADER
-========================================================= */
+export const loader = async ({ request }: LoaderFunctionArgs) => {
+  const { admin, session } = await authenticate.admin(request);
 
-export const loader =
-  async ({
-    request,
-  }: LoaderFunctionArgs) => {
-    const {
-      admin,
-      session,
-    } =
-      await authenticate.admin(
-        request,
-      );
+  const [diagnostics, catalog, runtime] = await Promise.all([
+    loadCachedBundleDiagnostics(admin, session.shop),
+    loadCachedBundleTemplateCatalog(admin, session.shop),
+    loadCachedBundleRuntimeSettings(admin, session.shop),
+  ]);
 
-    const [diagnostics, catalog, runtime] = await Promise.all([
-      loadCachedBundleDiagnostics(admin, session.shop),
-      loadCachedBundleTemplateCatalog(admin, session.shop),
-      loadCachedBundleRuntimeSettings(admin, session.shop),
-    ]);
+  const state = buildTemplateBundleState(
+    catalog.products,
+    catalog.templates,
+    runtime.componentConfig,
+  );
 
-    const state = buildTemplateBundleState(
-      catalog.products,
-      catalog.templates,
-      runtime.componentConfig,
-    );
+  const additionalComponents = [
+    ...state.eligibleBaseProducts.map((product) => ({
+      id: product.id,
+      role: "PC",
+    })),
+    ...state.multiVariantBaseProducts.map((product) => ({
+      id: product.id,
+      role: "PC",
+    })),
+    ...runtime.componentConfig.selectedMonitorIds.map((id) => ({
+      id,
+      role: "Monitor",
+    })),
+    ...runtime.componentConfig.selectedKeyboardMouseIds.map((id) => ({
+      id,
+      role: "Teclado y mouse",
+    })),
+    ...runtime.componentConfig.selectedWifiAdapterIds.map((id) => ({
+      id,
+      role: "Adaptador Wi-Fi",
+    })),
+  ];
 
-    const additionalComponents = [
-      ...state.eligibleBaseProducts.map((product) => ({
-        id: product.id, role: "PC",
-      })),
-      ...state.multiVariantBaseProducts.map((product) => ({
-        id: product.id, role: "PC",
-      })),
-      ...runtime.componentConfig.selectedMonitorIds.map((id) => ({
-        id, role: "Monitor",
-      })),
-      ...runtime.componentConfig.selectedKeyboardMouseIds.map((id) => ({
-        id, role: "Teclado y mouse",
-      })),
-      ...runtime.componentConfig.selectedWifiAdapterIds.map((id) => ({
-        id, role: "Adaptador Wi-Fi",
-      })),
-    ];
+  const readiness = await loadCachedBundleReadiness(
+    admin,
+    session.shop,
+    state.candidates,
+    additionalComponents,
+  );
 
-    const readiness = await loadCachedBundleReadiness(
-      admin,
-      session.shop,
-      state.candidates,
-      additionalComponents,
-    );
-
-    return {
-      diagnostics,
-      readiness,
-      readinessCandidates: state.candidates.map((candidate) => ({
-        id: candidate.id,
-      })),
-      shopDomain: session.shop,
-    };
-  };
-
-/* =========================================================
-   HELPERS
-========================================================= */
-
-function productNumericId(
-  gid: string,
-) {
-  return gid.split("/").pop() ??
-    "";
-}
-
-function getStatusLabel(
-  product: ProductDiagnostic,
-) {
-  if (
-    product.status ===
-    "missing_data"
-  ) {
-    return "Falta información";
-  }
-
-  if (
-    product.status ===
-    "blocked"
-  ) {
-    return "Sin Bundles";
-  }
-
-  return "Listo";
-}
-
-/* =========================================================
-   COMPONENT
-========================================================= */
-
-export default function Problems() {
-  const {
+  return {
     diagnostics,
     readiness,
-    readinessCandidates,
-    shopDomain,
-  } =
-    useLoaderData<
-      typeof loader
-    >();
+    candidateIds: state.candidates.map((candidate) => candidate.id),
+  };
+};
 
-  const [
-    searchParams,
-    setSearchParams,
-  ] =
-    useSearchParams();
+type ProblemRow = {
+  id: string;
+  title: string;
+  sku: string | null;
+  role: string;
+  stock: number | null;
+  codes: string[];
+  messages: string[];
+  hasPcDiagnostic: boolean;
+};
 
-  const initialSearch =
-    searchParams.get(
-      "q",
-    ) ?? "";
+const DATA_CODES = [
+  "missing_wifi",
+  "missing_video",
+  "missing_weight",
+  "missing_sku",
+  "missing_price",
+];
 
-  const [
-    search,
-    setSearch,
-  ] =
-    useState(
-      initialSearch,
-    );
+const FILTERS = [
+  "attention",
+  "missing_data",
+  "missing_weight",
+  "missing_wifi",
+  "missing_video",
+  "component_data",
+  "no_monitor",
+  "ready",
+  "all",
+] as const;
 
-  const rawFilter =
-    searchParams.get(
-      "filter",
-    ) ?? "attention";
+type ProblemFilter = (typeof FILTERS)[number];
 
-  const filter =
-    [
-      "all",
-      "attention",
-      "missing_data",
-      "missing_wifi",
-      "missing_video",
-      "component_data",
-      "missing_weight",
-      "no_monitor",
-      "ready",
-    ].includes(
-      rawFilter,
-    )
-      ? rawFilter
-      : "attention";
+function productNumericId(gid: string) {
+  return gid.split("/").pop() ?? "";
+}
 
-  const componentProblems = useMemo(() => {
-    const grouped = new Map<string, {
+export default function Problems() {
+  const { diagnostics, readiness, candidateIds } =
+    useLoaderData<typeof loader>();
+
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [search, setSearch] = useState(searchParams.get("q") ?? "");
+
+  const filterValue = searchParams.get("filter") ?? "attention";
+  const filter: ProblemFilter = FILTERS.includes(filterValue as ProblemFilter)
+    ? (filterValue as ProblemFilter)
+    : "attention";
+
+  // Join product-level diagnostic data and bundle component validation
+  // by Shopify product ID. One product occupies exactly one row.
+  const rows = useMemo(() => {
+    const mapped = new Map<string, {
       id: string;
       title: string;
+      sku: string | null;
       role: string;
-      messages: string[];
-      codes: string[];
-      affectedPcIds: Set<string>;
+      stock: number | null;
+      codes: Set<string>;
+      messages: Set<string>;
+      hasPcDiagnostic: boolean;
     }>();
 
-    // Count affected PC proposals separately from the product itself.
-    const affectedByComponent = new Map<string, Set<string>>();
-    for (const issue of readiness.issues) {
-      const bases = affectedByComponent.get(issue.componentId) ?? new Set<string>();
-      bases.add(issue.baseProductId);
-      affectedByComponent.set(issue.componentId, bases);
+    for (const product of diagnostics.products) {
+      mapped.set(product.id, {
+        id: product.id,
+        title: product.title,
+        sku: product.sku,
+        role: "PC",
+        stock: product.totalInventory,
+        codes: new Set(product.problemCodes),
+        messages: new Set(product.problems),
+        hasPcDiagnostic: true,
+      });
     }
 
     for (const issue of readiness.productIssues) {
-      const existing = grouped.get(issue.componentId) ?? {
-        id: issue.componentId,
-        title: issue.componentTitle,
-        role: issue.role,
-        messages: [],
-        codes: [],
-        affectedPcIds: affectedByComponent.get(issue.componentId) ?? new Set<string>(),
-      };
-
-      if (!existing.messages.includes(issue.message)) {
-        existing.messages.push(issue.message);
+      const previous = mapped.get(issue.componentId);
+      if (previous) {
+        previous.codes.add(issue.code);
+        previous.messages.add(issue.message);
+        if (!previous.sku && issue.componentSku) {
+          previous.sku = issue.componentSku;
+        }
+        if (previous.stock == null) {
+          previous.stock = issue.componentStock;
+        }
+      } else {
+        mapped.set(issue.componentId, {
+          id: issue.componentId,
+          title: issue.componentTitle,
+          sku: issue.componentSku,
+          role: issue.role,
+          stock: issue.componentStock,
+          codes: new Set([issue.code]),
+          messages: new Set([issue.message]),
+          hasPcDiagnostic: false,
+        });
       }
-      if (!existing.codes.includes(issue.code)) {
-        existing.codes.push(issue.code);
-      }
-      grouped.set(issue.componentId, existing);
     }
 
-    return Array.from(grouped.values()).sort((a, b) =>
-      a.title.localeCompare(b.title, "es"),
-    );
-  }, [readiness.productIssues, readiness.issues]);
+    return Array.from(mapped.values())
+      .map((product): ProblemRow => ({
+        ...product,
+        codes: [...product.codes],
+        messages: [...product.messages],
+      }))
+      .sort((a, b) => {
+        const difference = Number(b.messages.length > 0) -
+          Number(a.messages.length > 0);
+        return difference || a.title.localeCompare(b.title, "es");
+      });
+  }, [diagnostics.products, readiness.productIssues]);
 
-  const visibleComponentProblems = useMemo(() => {
+  const visibleRows = useMemo(() => {
     const query = search.trim().toLocaleLowerCase("es");
-    return componentProblems.filter((item) => {
-      if (filter === "missing_weight" && !item.codes.includes("missing_weight")) {
-        return false;
-      }
+    return rows.filter((row) => {
+      const codes = row.codes;
+      const hasProblems = row.messages.length > 0;
+      const filterMatches = (() => {
+        switch (filter) {
+          case "attention":
+            return hasProblems;
+          case "missing_data":
+            return codes.some((code) => DATA_CODES.includes(code));
+          case "missing_weight":
+            return codes.includes("missing_weight");
+          case "missing_wifi":
+            return codes.includes("missing_wifi");
+          case "missing_video":
+            return codes.includes("missing_video");
+          case "component_data":
+            return readiness.productIssues.some(
+              (issue) => issue.componentId === row.id,
+            );
+          case "no_monitor":
+            return codes.includes("no_compatible_monitor");
+          case "ready":
+            return row.hasPcDiagnostic && !hasProblems;
+          default:
+            return true;
+        }
+      })();
 
-      if (
-        filter === "missing_data" &&
-        !item.codes.some((code) =>
-          ["missing_weight", "missing_sku", "missing_price"].includes(code),
-        )
-      ) {
-        return false;
-      }
-
-      return (
-        !query ||
-        item.title.toLocaleLowerCase("es").includes(query) ||
-        item.role.toLocaleLowerCase("es").includes(query) ||
-        item.messages.some((message) =>
-          message.toLocaleLowerCase("es").includes(query),
-        )
-      );
+      if (!filterMatches) return false;
+      if (!query) return true;
+      return [
+        row.title,
+        row.sku ?? "",
+        row.role,
+        ...row.messages,
+      ].some((text) => text.toLocaleLowerCase("es").includes(query));
     });
-  }, [componentProblems, filter, search]);
+  }, [rows, filter, search, readiness.productIssues]);
 
-  const showComponentProblems =
-    ["attention", "all", "component_data", "missing_data", "missing_weight"].includes(filter);
+  const missingDataCount = rows.filter((row) =>
+    row.codes.some((code) => DATA_CODES.includes(code)),
+  ).length;
 
-  const missingInformationCount = new Set([
-    ...diagnostics.products
-      .filter((product) => product.status === "missing_data")
-      .map((product) => product.id),
-    ...componentProblems
-      .filter((product) => product.codes.some((code) =>
-        ["missing_weight", "missing_sku", "missing_price"].includes(code),
-      ))
-      .map((product) => product.id),
-  ]).size;
+  const missingWeightCount = rows.filter((row) =>
+    row.codes.includes("missing_weight"),
+  ).length;
 
-  const missingWeightCount = new Set(
-    componentProblems
-      .filter((product) => product.codes.includes("missing_weight"))
-      .map((product) => product.id),
-  ).size;
-
-  const blockedCandidates = new Set(
+  const blockedCandidateIds = new Set(
     readiness.issues.map((issue) => issue.candidateId),
   );
 
   const readyBundleCount = readiness.errors.length > 0
     ? 0
-    : readinessCandidates.filter((candidate) => !blockedCandidates.has(candidate.id)).length;
+    : candidateIds.filter((id) => !blockedCandidateIds.has(id)).length;
 
-  /* =======================================================
-     FILTER
-  ======================================================= */
-
-  const visibleProducts =
-    useMemo(() => {
-      let result = [
-        ...diagnostics.products,
-      ];
-
-      if (
-        filter ===
-        "component_data"
-      ) {
-        result = [];
-      }
-
-      if (
-        filter ===
-        "attention"
-      ) {
-        result =
-          result.filter(
-            (product) =>
-              !product.bundlePossible,
-          );
-      }
-
-      if (
-        filter ===
-        "missing_data"
-      ) {
-        result =
-          result.filter(
-            (product) =>
-              product.status ===
-              "missing_data",
-          );
-      }
-
-      if (
-        filter ===
-        "missing_wifi"
-      ) {
-        result =
-          result.filter(
-            (product) =>
-              product.problemCodes.includes(
-                "missing_wifi",
-              ),
-          );
-      }
-
-      if (
-        filter ===
-        "missing_video"
-      ) {
-        result =
-          result.filter(
-            (product) =>
-              product.problemCodes.includes(
-                "missing_video",
-              ),
-          );
-      }
-
-      if (
-        filter ===
-        "no_monitor"
-      ) {
-        result =
-          result.filter(
-            (product) =>
-              product.problemCodes.includes(
-                "no_compatible_monitor",
-              ),
-          );
-      }
-
-      if (
-        filter ===
-        "ready"
-      ) {
-        result =
-          result.filter(
-            (product) =>
-              product.bundlePossible,
-          );
-      }
-
-      const query =
-        search
-          .trim()
-          .toLocaleLowerCase(
-            "es",
-          );
-
-      if (query) {
-        result =
-          result.filter(
-            (product) =>
-              product.title
-                .toLocaleLowerCase(
-                  "es",
-                )
-                .includes(
-                  query,
-                ) ||
-              (
-                product.sku ??
-                ""
-              )
-                .toLocaleLowerCase(
-                  "es",
-                )
-                .includes(
-                  query,
-                ),
-          );
-      }
-
-      return result;
-    }, [
-      diagnostics.products,
-      filter,
-      search,
-    ]);
-
-  function changeFilter(
-    newFilter: string,
-  ) {
-    const next =
-      new URLSearchParams(
-        searchParams,
-      );
-
-    next.set(
-      "filter",
-      newFilter,
-    );
-
-    setSearchParams(
-      next,
-    );
+  function changeFilter(nextFilter: string) {
+    const next = new URLSearchParams(searchParams);
+    next.set("filter", nextFilter);
+    setSearchParams(next);
   }
 
-  /* =======================================================
-     RENDER
-  ======================================================= */
-
   return (
-    <s-page
-      heading="Productos con problemas"
-      inlineSize="large"
-    >
-
+    <s-page heading="Productos con problemas" inlineSize="large">
       <s-stack gap="base">
-
         <style>{`
           .csb-problems-metrics {
             display: grid;
@@ -444,23 +252,21 @@ export default function Problems() {
           .csb-problems-metric {
             min-width: 0;
             min-height: 92px;
+            padding: 15px 16px;
             border: 1px solid #e3e3e3;
             border-radius: 10px;
             background: var(--p-color-bg-surface, #fff);
-            padding: 15px 16px;
             display: flex;
             flex-direction: column;
             justify-content: space-between;
             gap: 14px;
           }
           .csb-problems-metric-label {
-            display: block;
             color: var(--p-color-text-secondary, #626262);
             font-size: 13px;
             line-height: 1.35;
           }
           .csb-problems-metric-value {
-            display: block;
             color: var(--p-color-text, #303030);
             font-size: 24px;
             line-height: 1;
@@ -473,32 +279,54 @@ export default function Problems() {
             gap: 12px;
             align-items: end;
           }
-          .csb-problems-filters > * { min-width: 0; width: 100%; }
+          .csb-problems-filters > * {
+            min-width: 0;
+            width: 100%;
+          }
+          .csb-problems-product {
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+          }
+          .csb-problems-issues {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+          }
           @media (max-width: 1220px) {
-            .csb-problems-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+            .csb-problems-metrics {
+              grid-template-columns: repeat(3, minmax(0, 1fr));
+            }
           }
           @media (max-width: 680px) {
-            .csb-problems-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-            .csb-problems-filters { grid-template-columns: 1fr; }
+            .csb-problems-metrics {
+              grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+            .csb-problems-filters {
+              grid-template-columns: 1fr;
+            }
           }
           @media (max-width: 360px) {
-            .csb-problems-metrics { grid-template-columns: 1fr; }
+            .csb-problems-metrics {
+              grid-template-columns: 1fr;
+            }
           }
         `}</style>
 
         <s-section>
-
           <s-paragraph>
-            Detecta qué información o componente impide generar Bundles para cada PC.
+            Revisa en una sola lista la información que impide crear Bundles.
+            Cada producto aparece una vez, con los problemas pendientes y
+            acceso directo para corregirlo en Shopify.
           </s-paragraph>
-
         </s-section>
 
         <div className="csb-problems-metrics" aria-label="Resumen de problemas">
           {([
             ["PC con stock", diagnostics.totalPcWithStock],
             ["Bundles listos", readyBundleCount],
-            ["Faltan datos", missingInformationCount],
+            ["Faltan datos", missingDataCount],
             ["Sin peso", missingWeightCount],
             ["Wi-Fi sin informar", diagnostics.missingWifiCount],
             ["Salidas sin informar", diagnostics.missingVideoCount],
@@ -511,67 +339,37 @@ export default function Problems() {
         </div>
 
         <div className="csb-problems-filters">
-                <s-text-field
-                  label="Buscar producto"
-                  labelAccessibilityVisibility="exclusive"
-                  icon="search"
-                  placeholder="Buscar por producto o SKU"
-                  value={
-                    search
-                  }
-                  onInput={(event) =>
-                    setSearch(
-                      event.currentTarget.value,
-                    )
-                  }
-                />
-
-                <s-select
-                  label="Filtrar por estado"
-                  labelAccessibilityVisibility="exclusive"
-                  value={
-                    filter
-                  }
-                  onChange={(event) =>
-                    changeFilter(
-                      event.currentTarget.value,
-                    )
-                  }
-                >
-                  <s-option value="attention">
-                    Requieren atención
-                  </s-option>
-                  <s-option value="missing_data">
-                    Faltan datos
-                  </s-option>
-                  <s-option value="missing_wifi">
-                    Wi-Fi
-                  </s-option>
-                  <s-option value="missing_video">
-                    Salidas de video
-                  </s-option>
-                  <s-option value="component_data">
-                    Datos de componentes
-                  </s-option>
-                  <s-option value="missing_weight">
-                    Falta peso
-                  </s-option>
-                  <s-option value="no_monitor">
-                    Sin compatibilidad
-                  </s-option>
-                  <s-option value="ready">
-                    Listos
-                  </s-option>
-                  <s-option value="all">
-                    Todos
-                  </s-option>
-                </s-select>
-
-
+          <s-text-field
+            label="Buscar producto"
+            labelAccessibilityVisibility="exclusive"
+            icon="search"
+            placeholder="Buscar por producto o SKU"
+            value={search}
+            onInput={(event) => setSearch(event.currentTarget.value)}
+          />
+          <s-select
+            label="Filtrar por estado"
+            labelAccessibilityVisibility="exclusive"
+            value={filter}
+            onChange={(event) => changeFilter(event.currentTarget.value)}
+          >
+            <s-option value="attention">Requieren atención</s-option>
+            <s-option value="missing_data">Faltan datos</s-option>
+            <s-option value="missing_weight">Falta peso</s-option>
+            <s-option value="missing_wifi">Wi-Fi</s-option>
+            <s-option value="missing_video">Salidas de video</s-option>
+            <s-option value="component_data">Datos de componentes</s-option>
+            <s-option value="no_monitor">Sin compatibilidad</s-option>
+            <s-option value="ready">Listos</s-option>
+            <s-option value="all">Todos</s-option>
+          </s-select>
         </div>
 
         {readiness.errors.length > 0 && (
-          <s-banner heading="No se pudo verificar el estado de los componentes" tone="critical">
+          <s-banner
+            heading="No se pudo verificar el estado de los componentes"
+            tone="critical"
+          >
             <s-paragraph>
               No se considerarán listos los Bundles hasta validar esta información.
               {readiness.errors.join(" · ")}
@@ -579,266 +377,90 @@ export default function Problems() {
           </s-banner>
         )}
 
-        {showComponentProblems && (
-          <s-section heading={`Productos que requieren corrección (${visibleComponentProblems.length})`}>
-            <s-stack gap="base">
-              <s-paragraph>
-                Información que impide crear Bundles. Se revisan los PC elegibles y
-                los componentes autorizados, incluso si aún no existe una propuesta.
-                Corrige cada producto directamente en Shopify.
-              </s-paragraph>
-              {visibleComponentProblems.length > 0 ? (
-                <s-table>
-                  <s-table-header-row>
-                    <s-table-header listSlot="primary">Componente</s-table-header>
-                    <s-table-header listSlot="labeled">Problema</s-table-header>
-                    <s-table-header listSlot="labeled" format="numeric">PC afectados</s-table-header>
-                    <s-table-header listSlot="secondary">Acción</s-table-header>
-                  </s-table-header-row>
-                  <s-table-body>
-                    {visibleComponentProblems.map((item) => (
-                      <s-table-row key={item.id}>
-                        <s-table-cell>
-                          <s-stack gap="small">
-                            <s-text>{item.title}</s-text>
-                            <s-text tone="neutral">{item.role}</s-text>
-                          </s-stack>
-                        </s-table-cell>
-                        <s-table-cell>
-                          <s-text tone="warning">
-                            {item.messages.join(" · ")}
-                          </s-text>
-                        </s-table-cell>
-                        <s-table-cell>{item.affectedPcIds.size || "—"}</s-table-cell>
-                        <s-table-cell>
-                          <s-button
-                            variant="tertiary"
-                            href={`shopify:admin/products/${productNumericId(item.id)}`}
-                          >
-                            Editar en Shopify
-                          </s-button>
-                        </s-table-cell>
-                      </s-table-row>
-                    ))}
-                  </s-table-body>
-                </s-table>
-              ) : (
-                <s-text tone="neutral">
-                  {readiness.errors.length > 0
-                    ? "No fue posible comprobar los componentes."
-                    : "No hay componentes con información faltante."}
-                </s-text>
-              )}
-            </s-stack>
-          </s-section>
-        )}
-
-        {filter !== "component_data" && filter !== "missing_weight" && (
-        <s-section
-          padding="none"
-          accessibilityLabel="Diagnóstico de productos"
-        >
-
+        <s-section padding="none" accessibilityLabel="Diagnóstico de productos">
           <s-table>
-
-
-
             <s-table-header-row>
-
-              <s-table-header listSlot="primary">
-                Producto
-              </s-table-header>
-
-              <s-table-header
-                listSlot="labeled"
-                format="numeric"
-              >
-                Stock
-              </s-table-header>
-
-              <s-table-header listSlot="labeled">
-                Wi-Fi
-              </s-table-header>
-
-              <s-table-header listSlot="labeled">
-                Salidas
-              </s-table-header>
-
-              <s-table-header listSlot="inline">
-                Estado
-              </s-table-header>
-
-              <s-table-header listSlot="secondary">
-                Acción
-              </s-table-header>
-
+              <s-table-header listSlot="primary">Producto</s-table-header>
+              <s-table-header listSlot="labeled">Tipo</s-table-header>
+              <s-table-header listSlot="labeled" format="numeric">Stock</s-table-header>
+              <s-table-header listSlot="labeled">Problemas detectados</s-table-header>
+              <s-table-header listSlot="inline">Estado</s-table-header>
+              <s-table-header listSlot="secondary">Acción</s-table-header>
             </s-table-header-row>
-
             <s-table-body>
+              {visibleRows.map((product) => {
+                const needsAttention = product.messages.length > 0;
+                return (
+                  <s-table-row key={product.id}>
+                    <s-table-cell>
+                      <div className="csb-problems-product">
+                        <s-text>{product.title}</s-text>
+                        <s-text tone="neutral">
+                          SKU: {product.sku || "Sin SKU"}
+                        </s-text>
+                      </div>
+                    </s-table-cell>
 
-              {visibleProducts.map(
-                (product) => {
-                  const ready =
-                    product.bundlePossible;
+                    <s-table-cell>{product.role}</s-table-cell>
 
-                  const editUrl =
-                    `shopify:admin/products/${productNumericId(
-                      product.id,
-                    )}`;
+                    <s-table-cell>
+                      {product.stock === null ? "—" : product.stock}
+                    </s-table-cell>
 
-                  return (
-                    <s-table-row
-                      key={
-                        product.id
-                      }
-                    >
-
-                      <s-table-cell>
-
-                        <s-stack gap="small">
-
-                          <s-text>
-                            {
-                              product.title
-                            }
-                          </s-text>
-
-                          <s-text tone="neutral">
-                            SKU:{" "}
-                            {
-                              product.sku ??
-                              "Sin SKU"
-                            }
-                          </s-text>
-
-                          {!ready &&
-                            product.problems.length >
-                              0 && (
-                            <s-text tone="warning">
-                              {
-                                product.problems.join(
-                                  " · ",
-                                )
-                              }
+                    <s-table-cell>
+                      {needsAttention ? (
+                        <div className="csb-problems-issues">
+                          {product.messages.map((message, index) => (
+                            <s-text key={index} tone="warning">
+                              {message}
                             </s-text>
-                          )}
+                          ))}
+                        </div>
+                      ) : (
+                        <s-text tone="neutral">Sin problemas detectados</s-text>
+                      )}
+                    </s-table-cell>
 
-                        </s-stack>
+                    <s-table-cell>
+                      <s-badge tone={needsAttention ? "warning" : "success"}>
+                        {needsAttention ? "Requiere corrección" : "Listo"}
+                      </s-badge>
+                    </s-table-cell>
 
-                      </s-table-cell>
-
-                      <s-table-cell>
-                        {
-                          product.totalInventory
-                        }
-                      </s-table-cell>
-
-                      <s-table-cell>
-                        <s-badge
-                          tone={
-                            product.wifi ===
-                            "Sin informar"
-                              ? "warning"
-                              : "neutral"
-                          }
-                        >
-                          {
-                            product.wifi
-                          }
-                        </s-badge>
-                      </s-table-cell>
-
-                      <s-table-cell>
-                        {product.videoOutputs.length >
-                        0
-                          ? product.videoOutputs.join(
-                              ", ",
-                            )
-                          : (
-                            <s-badge tone="warning">
-                              Sin informar
-                            </s-badge>
-                          )}
-                      </s-table-cell>
-
-                      <s-table-cell>
-                        <s-badge
-                          tone={
-                            ready
-                              ? "success"
-                              : "warning"
-                          }
-                        >
-                          {
-                            getStatusLabel(
-                              product,
-                            )
-                          }
-                        </s-badge>
-                      </s-table-cell>
-
-                      <s-table-cell>
-
-                        <s-button
-                          variant="tertiary"
-                          href={
-                            editUrl
-                          }
-                        >
-                          Editar en Shopify
-                        </s-button>
-
-                      </s-table-cell>
-
-                    </s-table-row>
-                  );
-                },
-              )}
-
+                    <s-table-cell>
+                      <s-button
+                        variant="tertiary"
+                        href={`shopify:admin/products/${productNumericId(product.id)}`}
+                      >
+                        Editar en Shopify
+                      </s-button>
+                    </s-table-cell>
+                  </s-table-row>
+                );
+              })}
             </s-table-body>
-
           </s-table>
 
-          {visibleProducts.length ===
-            0 && (
+          {visibleRows.length === 0 && (
             <s-box padding="large">
-
-              <s-stack
-                alignItems="center"
-                gap="small"
-              >
-                <s-text>
-                  No hay productos que coincidan con este filtro.
-                </s-text>
-              </s-stack>
-
+              <s-text tone="neutral">
+                {readiness.errors.length > 0
+                  ? "No se pudo completar la revisión de los componentes."
+                  : "No hay productos que coincidan con este filtro."}
+              </s-text>
             </s-box>
           )}
 
           <s-box padding="small">
             <s-text tone="neutral">
-              {visibleProducts.length} producto(s)
+              {visibleRows.length} producto(s)
             </s-text>
           </s-box>
-
         </s-section>
-        )}
-
       </s-stack>
-
     </s-page>
   );
 }
 
-/* =========================================================
-   HEADERS
-========================================================= */
-
-export const headers:
-  HeadersFunction = (
-    headersArgs,
-  ) => {
-    return boundary.headers(
-      headersArgs,
-    );
-  };
+export const headers: HeadersFunction = (headersArgs) =>
+  boundary.headers(headersArgs);
