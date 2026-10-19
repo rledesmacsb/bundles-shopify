@@ -86,6 +86,9 @@ export const loader =
     return {
       diagnostics,
       readiness,
+      readinessCandidates: state.candidates.map((candidate) => ({
+        id: candidate.id,
+      })),
       shopDomain: session.shop,
     };
   };
@@ -129,6 +132,7 @@ export default function Problems() {
   const {
     diagnostics,
     readiness,
+    readinessCandidates,
     shopDomain,
   } =
     useLoaderData<
@@ -258,6 +262,20 @@ export default function Problems() {
       ))
       .map((product) => product.id),
   ]).size;
+
+  const missingWeightCount = new Set(
+    componentProblems
+      .filter((product) => product.codes.includes("missing_weight"))
+      .map((product) => product.id),
+  ).size;
+
+  const blockedCandidates = new Set(
+    readiness.issues.map((issue) => issue.candidateId),
+  );
+
+  const readyBundleCount = readiness.errors.length > 0
+    ? 0
+    : readinessCandidates.filter((candidate) => !blockedCandidates.has(candidate.id)).length;
 
   /* =======================================================
      FILTER
@@ -417,6 +435,57 @@ export default function Problems() {
 
       <s-stack gap="base">
 
+        <style>{`
+          .csb-problems-metrics {
+            display: grid;
+            grid-template-columns: repeat(6, minmax(0, 1fr));
+            gap: 12px;
+          }
+          .csb-problems-metric {
+            min-width: 0;
+            min-height: 92px;
+            border: 1px solid #e3e3e3;
+            border-radius: 10px;
+            background: var(--p-color-bg-surface, #fff);
+            padding: 15px 16px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            gap: 14px;
+          }
+          .csb-problems-metric-label {
+            display: block;
+            color: var(--p-color-text-secondary, #626262);
+            font-size: 13px;
+            line-height: 1.35;
+          }
+          .csb-problems-metric-value {
+            display: block;
+            color: var(--p-color-text, #303030);
+            font-size: 24px;
+            line-height: 1;
+            font-weight: 650;
+            font-variant-numeric: tabular-nums;
+          }
+          .csb-problems-filters {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(210px, 265px);
+            gap: 12px;
+            align-items: end;
+          }
+          .csb-problems-filters > * { min-width: 0; width: 100%; }
+          @media (max-width: 1220px) {
+            .csb-problems-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+          }
+          @media (max-width: 680px) {
+            .csb-problems-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .csb-problems-filters { grid-template-columns: 1fr; }
+          }
+          @media (max-width: 360px) {
+            .csb-problems-metrics { grid-template-columns: 1fr; }
+          }
+        `}</style>
+
         <s-section>
 
           <s-paragraph>
@@ -425,89 +494,23 @@ export default function Problems() {
 
         </s-section>
 
-        <s-query-container>
+        <div className="csb-problems-metrics" aria-label="Resumen de problemas">
+          {([
+            ["PC con stock", diagnostics.totalPcWithStock],
+            ["Bundles listos", readyBundleCount],
+            ["Faltan datos", missingInformationCount],
+            ["Sin peso", missingWeightCount],
+            ["Wi-Fi sin informar", diagnostics.missingWifiCount],
+            ["Salidas sin informar", diagnostics.missingVideoCount],
+          ] as Array<[string, number]>).map(([label, value]) => (
+            <div className="csb-problems-metric" key={label}>
+              <span className="csb-problems-metric-label">{label}</span>
+              <span className="csb-problems-metric-value">{value}</span>
+            </div>
+          ))}
+        </div>
 
-          <s-grid
-            gridTemplateColumns="@container (inline-size > 1050px) repeat(5, 1fr), @container (inline-size > 620px) repeat(3, 1fr), repeat(2, 1fr)"
-            gap="base"
-          >
-
-            <s-section>
-              <s-stack gap="small">
-                <s-text tone="neutral">
-                  PC con stock
-                </s-text>
-                <s-heading>
-                  {
-                    diagnostics.totalPcWithStock
-                  }
-                </s-heading>
-              </s-stack>
-            </s-section>
-
-            <s-section>
-              <s-stack gap="small">
-                <s-text tone="neutral">
-                  Bundles posibles
-                </s-text>
-                <s-heading>
-                  {
-                    diagnostics.bundlePossibleCount
-                  }
-                </s-heading>
-              </s-stack>
-            </s-section>
-
-            <s-section>
-              <s-stack gap="small">
-                <s-text tone="neutral">
-                  Faltan datos
-                </s-text>
-                <s-heading>
-                  {
-                    missingInformationCount
-                  }
-                </s-heading>
-              </s-stack>
-            </s-section>
-
-            <s-section>
-              <s-stack gap="small">
-                <s-text tone="neutral">
-                  Sin Wi-Fi informado
-                </s-text>
-                <s-heading>
-                  {
-                    diagnostics.missingWifiCount
-                  }
-                </s-heading>
-              </s-stack>
-            </s-section>
-
-            <s-section>
-              <s-stack gap="small">
-                <s-text tone="neutral">
-                  Sin salidas de video
-                </s-text>
-                <s-heading>
-                  {
-                    diagnostics.missingVideoCount
-                  }
-                </s-heading>
-              </s-stack>
-            </s-section>
-
-          </s-grid>
-
-        </s-query-container>
-
-            <s-query-container >
-
-              <s-grid
-                gridTemplateColumns="@container (inline-size > 700px) minmax(0, 1fr) minmax(190px, 250px), 1fr"
-                gap="small"
-              >
-
+        <div className="csb-problems-filters">
                 <s-text-field
                   label="Buscar producto"
                   labelAccessibilityVisibility="exclusive"
@@ -564,9 +567,8 @@ export default function Problems() {
                   </s-option>
                 </s-select>
 
-              </s-grid>
 
-            </s-query-container>
+        </div>
 
         {readiness.errors.length > 0 && (
           <s-banner heading="No se pudo verificar el estado de los componentes" tone="critical">
