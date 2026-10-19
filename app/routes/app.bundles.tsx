@@ -106,6 +106,23 @@ export const loader =
         runtime.componentConfig,
       );
 
+    const scopesResponse = await admin.graphql(`#graphql
+      query CsbyteBundlePublicationPermissions {
+        currentAppInstallation { accessScopes { handle } }
+      }
+    `);
+    const scopeData = await scopesResponse.json() as {
+      data?: { currentAppInstallation?: { accessScopes?: Array<{ handle: string }> } };
+      errors?: Array<{ message: string }>;
+    };
+    const activeScopes = (
+      scopeData.errors?.length ? [] :
+      scopeData.data?.currentAppInstallation?.accessScopes ?? []
+    ).map((scope) => scope.handle);
+    const publishPermissionsReady =
+      activeScopes.includes("read_publications") &&
+      activeScopes.includes("write_publications");
+
     const [existingBundleMatches, readiness] = await Promise.all([
       loadCachedExistingBundleMatches(
         admin,
@@ -127,6 +144,8 @@ export const loader =
       existingBundleMatches,
 
       readiness,
+
+      publishPermissionsReady,
     };
   };
 
@@ -3154,6 +3173,17 @@ export default function Bundles() {
                         peso, stock, componentes y el canal Tienda online.
                       </s-paragraph>
 
+                      {!data.publishPermissionsReady && (
+                        <s-banner
+                          heading="Publicación pendiente de permisos"
+                          tone="warning"
+                        >
+                          Shopify debe autorizar los permisos de lectura y escritura
+                          de publicaciones para habilitar esta acción.
+                          Mientras tanto, el producto permanece en Borrador.
+                        </s-banner>
+                      )}
+
                       <publishFetcher.Form method="post">
                         <input type="hidden" name="intent" value="validate_publish" />
                         <input
@@ -3164,7 +3194,7 @@ export default function Bundles() {
                         <s-button
                           type="submit"
                           variant="secondary"
-                          disabled={working || publishingBusy}
+                          disabled={working || publishingBusy || !data.publishPermissionsReady}
                         >
                           {publishingBusy ? "Verificando..." : "Validar para publicar"}
                         </s-button>
