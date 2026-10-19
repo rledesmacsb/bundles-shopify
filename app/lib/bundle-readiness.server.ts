@@ -20,6 +20,8 @@ export type MonitoredBundleComponent = {
 export type BundleProductIssue = {
   componentId: string;
   componentTitle: string;
+  componentSku: string | null;
+  componentStock: number | null;
   role: string;
   code: IssueCode;
   message: string;
@@ -189,6 +191,8 @@ export async function loadBundleReadiness(
       componentIssues.push({
         componentId: entry.id,
         componentTitle: product?.title ?? entry.title,
+        componentSku: product?.variants?.nodes?.[0]?.sku ?? null,
+        componentStock: product?.totalInventory ?? null,
         role: entry.role,
         code,
         message: `${entry.role}: ${reason}`,
