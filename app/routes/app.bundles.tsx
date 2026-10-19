@@ -106,22 +106,30 @@ export const loader =
         runtime.componentConfig,
       );
 
-    const scopesResponse = await admin.graphql(`#graphql
-      query CsbyteBundlePublicationPermissions {
-        currentAppInstallation { accessScopes { handle } }
-      }
-    `);
-    const scopeData = await scopesResponse.json() as {
-      data?: { currentAppInstallation?: { accessScopes?: Array<{ handle: string }> } };
-      errors?: Array<{ message: string }>;
-    };
-    const activeScopes = (
-      scopeData.errors?.length ? [] :
-      scopeData.data?.currentAppInstallation?.accessScopes ?? []
-    ).map((scope) => scope.handle);
-    const publishPermissionsReady =
-      activeScopes.includes("read_publications") &&
-      activeScopes.includes("write_publications");
+    // Publication access is optional until Shopify has approved the new
+    // read_publications scope. Failure to inspect scopes must never block
+    // the rest of the Bundles page.
+    let publishPermissionsReady = false;
+    try {
+      const scopesResponse = await admin.graphql(`#graphql
+        query CsbyteBundlePublicationPermissions {
+          currentAppInstallation { accessScopes { handle } }
+        }
+      `);
+      const scopeData = await scopesResponse.json() as {
+        data?: { currentAppInstallation?: { accessScopes?: Array<{ handle: string }> } };
+        errors?: Array<{ message: string }>;
+      };
+      const activeScopes = (
+        scopeData.errors?.length ? [] :
+        scopeData.data?.currentAppInstallation?.accessScopes ?? []
+      ).map((scope) => scope.handle);
+      publishPermissionsReady =
+        activeScopes.includes("read_publications") &&
+        activeScopes.includes("write_publications");
+    } catch {
+      publishPermissionsReady = false;
+    }
 
     const [existingBundleMatches, readiness] = await Promise.all([
       loadCachedExistingBundleMatches(
@@ -2841,7 +2849,9 @@ export default function Bundles() {
           </s-paragraph>
           <s-paragraph>
             Shopify volverá a validar los componentes y la configuración
-            antes de efectuar el cambio. Solo se publicará este Bundles.
+            antes de efectuar el cambio. Solo se modificará este producto.
+            Si tienes otros canales configurados para publicación automática,
+            activarlo también podría afectar su disponibilidad en esos canales.
           </s-paragraph>
         </s-stack>
         <s-button
