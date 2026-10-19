@@ -32,6 +32,7 @@ import {
 import {
   loadBundleReadiness,
   type BundleReadiness,
+  type MonitoredBundleComponent,
 } from "./bundle-readiness.server";
 
 import type {
@@ -410,11 +411,23 @@ export function loadCachedBundleReadiness(
   admin: AdminClient,
   shop: string,
   candidates: TemplateBundleCandidate[],
+  additionalComponents: MonitoredBundleComponent[] = [],
 ): Promise<BundleReadiness> {
-  const signature = candidateSignature(candidates);
+  const signature = createHash("sha1")
+    .update(candidateSignature(candidates))
+    .update(
+      JSON.stringify(
+        additionalComponents
+          .map((item) => [item.id, item.role])
+          .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
+      ),
+    )
+    .digest("hex")
+    .slice(0, 16);
+
   return readThroughCache(
     `bundle:${shopKey(shop)}:readiness:${signature}`,
     READINESS_TTL_MS,
-    () => loadBundleReadiness(admin, candidates),
+    () => loadBundleReadiness(admin, candidates, additionalComponents),
   );
 }
