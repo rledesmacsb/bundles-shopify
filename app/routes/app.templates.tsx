@@ -762,6 +762,67 @@ export default function Templates() {
 
       <s-stack gap="base">
 
+        <style>{`
+          /* Responsive field groups; retain Shopify's native form controls. */
+          .csb-templates-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            align-items: start;
+            gap: 16px;
+            min-width: 0;
+          }
+
+          .csb-templates-grid > * {
+            min-width: 0;
+            width: 100%;
+          }
+
+          .csb-templates-grid--rules {
+            align-items: stretch;
+          }
+
+          .csb-templates-grid--generated {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+          }
+
+          /* Condition editors are nested inside a component rule card.
+             Size these by available card width, not the desktop viewport. */
+          .csb-templates-condition-container {
+            container-type: inline-size;
+            min-width: 0;
+            width: 100%;
+          }
+
+          .csb-templates-grid--condition {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+          }
+
+          @container (min-width: 780px) {
+            .csb-templates-grid--condition {
+              grid-template-columns: repeat(4, minmax(0, 1fr));
+            }
+          }
+
+          @container (max-width: 440px) {
+            .csb-templates-grid--condition {
+              grid-template-columns: 1fr;
+            }
+          }
+
+          @media (max-width: 1050px) {
+            .csb-templates-grid--generated {
+              grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+          }
+
+          @media (max-width: 720px) {
+            .csb-templates-grid:not(.csb-templates-grid--condition) {
+              grid-template-columns: minmax(0, 1fr);
+            }
+          }
+        `}</style>
+
         <s-section>
 
           <s-paragraph>
@@ -855,12 +916,7 @@ export default function Templates() {
                     Nombre interno y tipo de plantilla.
                   </s-paragraph>
 
-                  <s-query-container>
-
-                    <s-grid
-                      gridTemplateColumns="@container (inline-size > 700px) repeat(2, 1fr), 1fr"
-                      gap="base"
-                    >
+                  <div className="csb-templates-grid csb-templates-grid--two">
 
                       <s-text-field
                         label="Nombre de plantilla"
@@ -884,9 +940,7 @@ export default function Templates() {
                         disabled
                       />
 
-                    </s-grid>
-
-                  </s-query-container>
+                    </div>
 
                 </s-stack>
 
@@ -902,12 +956,7 @@ export default function Templates() {
                     Cada componente puede utilizar una o más condiciones. Define si deben cumplirse todas o cualquiera de ellas.
                   </s-paragraph>
 
-                  <s-query-container>
-
-                    <s-grid
-                      gridTemplateColumns="@container (inline-size > 900px) repeat(2, minmax(0, 1fr)), 1fr"
-                      gap="base"
-                    >
+                  <div className="csb-templates-grid csb-templates-grid--rules">
 
                       <ComponentRuleCard
                         label="Computador base"
@@ -1049,9 +1098,7 @@ export default function Templates() {
                         }
                       />
 
-                    </s-grid>
-
-                  </s-query-container>
+                    </div>
 
                 </s-stack>
 
@@ -1067,12 +1114,7 @@ export default function Templates() {
                     Define los metacampos utilizados para Wi-Fi y compatibilidad entre las salidas del computador y las entradas del monitor.
                   </s-paragraph>
 
-                  <s-query-container>
-
-                    <s-grid
-                      gridTemplateColumns="@container (inline-size > 900px) repeat(2, minmax(0, 1fr)), 1fr"
-                      gap="base"
-                    >
+                  <div className="csb-templates-grid csb-templates-grid--two">
 
                       <MetafieldSelector
                         label="Wi-Fi integrado"
@@ -1159,9 +1201,7 @@ export default function Templates() {
                         </s-option>
                       </s-select>
 
-                    </s-grid>
-
-                  </s-query-container>
+                    </div>
 
                 </s-stack>
 
@@ -1177,12 +1217,7 @@ export default function Templates() {
                     Define cómo se identificará el producto de Bundles creado en Shopify.
                   </s-paragraph>
 
-                  <s-query-container>
-
-                    <s-grid
-                      gridTemplateColumns="@container (inline-size > 1050px) repeat(3, minmax(0, 1fr)), @container (inline-size > 700px) repeat(2, minmax(0, 1fr)), 1fr"
-                      gap="base"
-                    >
+                  <div className="csb-templates-grid csb-templates-grid--generated">
 
                       <s-text-field
                         label="Prefijo del nombre"
@@ -1292,9 +1327,7 @@ export default function Templates() {
                         disabled
                       />
 
-                    </s-grid>
-
-                  </s-query-container>
+                    </div>
 
                   <s-banner
                     tone="info"
@@ -1774,12 +1807,8 @@ function ConditionEditor({
   return (
     <s-section>
 
-      <s-query-container>
-
-        <s-grid
-          gridTemplateColumns="@container (inline-size > 900px) repeat(4, minmax(0, 1fr)), @container (inline-size > 600px) repeat(2, minmax(0, 1fr)), 1fr"
-          gap="small"
-        >
+      <div className="csb-templates-condition-container">
+          <div className="csb-templates-grid csb-templates-grid--condition">
 
           <s-select
             label="Campo"
@@ -1911,9 +1940,8 @@ function ConditionEditor({
             />
           )}
 
-        </s-grid>
-
-      </s-query-container>
+        </div>
+      </div>
 
       <s-box paddingBlockStart="small">
 
