@@ -62,6 +62,11 @@ import {
   syncExistingBundleWeightFromCandidate,
 } from "../lib/bundle-create.server";
 
+import {
+  validateBundlePublication,
+  publishValidatedBundle,
+} from "../lib/bundle-publish.server";
+
 /* =========================================================
    LOADER
 ========================================================= */
@@ -203,6 +208,33 @@ export const action =
         invalidateShopBundleCache(
           session.shop,
         );
+      }
+
+      return result;
+    }
+
+    /* -----------------------------------------------------
+       VALIDATE / PUBLISH ONE BUNDLE
+       The server resolves product, components and Online Store itself.
+       A confirmation never trusts a client-supplied Shopify product ID.
+    ----------------------------------------------------- */
+    if (intent === "validate_publish" || intent === "publish_online_store") {
+      const candidateId = String(formData.get("candidateId") ?? "").trim();
+      if (!candidateId) {
+        return {
+          success: false,
+          ready: false,
+          message: "No se recibió el Bundles a publicar.",
+        };
+      }
+
+      const result = intent === "validate_publish"
+        ? await validateBundlePublication(admin, candidateId)
+        : await publishValidatedBundle(admin, candidateId);
+
+      if (intent === "publish_online_store" &&
+        (result.success || ("partial" in result && result.partial))) {
+        invalidateShopBundleCache(session.shop);
       }
 
       return result;
@@ -583,11 +615,16 @@ export default function Bundles() {
       typeof action
     >();
 
+  const publishFetcher = useFetcher<typeof action>();
+
   const revalidator =
     useRevalidator();
 
   const shopify =
     useAppBridge();
+
+  const publishingBusy = publishFetcher.state !== "idle";
+  const publicationAudit = publishFetcher.data;
 
   const [
     search,
@@ -642,6 +679,13 @@ export default function Bundles() {
     >(
       null,
     );
+
+  const publicationApproved = Boolean(
+    publicationAudit &&
+    "ready" in publicationAudit &&
+    publicationAudit.ready === true &&
+    publicationAudit.candidateId === detailCandidateId
+  );
 
   const [
     creatingCandidateId,
@@ -718,6 +762,21 @@ export default function Bundles() {
     useRef(
       false,
     );
+
+  useEffect(() => {
+    if (publishFetcher.data?.message) {
+      shopify.toast.show(publishFetcher.data.message);
+    }
+    if (
+      publishFetcher.data?.success &&
+      "ready" in publishFetcher.data &&
+      publishFetcher.data.ready === false
+    ) {
+      void shopify.modal.hide("bundle-publish-confirm-modal");
+      setDetailCandidateId(null);
+      revalidator.revalidate();
+    }
+  }, [publishFetcher.data, shopify, revalidator]);
 
   useEffect(() => {
     if (
@@ -2751,6 +2810,50 @@ export default function Bundles() {
       </s-modal>
 
       <s-modal
+        id="bundle-publish-confirm-modal"
+        heading="Confirmar publicación"
+        accessibilityLabel="Confirmar publicación de Bundles"
+        size="small"
+      >
+        <s-stack gap="base">
+          <s-paragraph>
+            Esta acción cambiará el producto de Borrador a Activo y
+            lo publicará en el canal Tienda online.
+          </s-paragraph>
+          <s-paragraph>
+            Shopify volverá a validar los componentes y la configuración
+            antes de efectuar el cambio. Solo se publicará este Bundles.
+          </s-paragraph>
+        </s-stack>
+        <s-button
+          slot="secondary-actions"
+          variant="secondary"
+          commandFor="bundle-publish-confirm-modal"
+          command="--hide"
+        >
+          Cancelar
+        </s-button>
+        <s-button
+          slot="primary-action"
+          variant="primary"
+          disabled={!publicationApproved || publishingBusy}
+          onClick={() => {
+            if (!publicationApproved || !detailCandidateId) return;
+            void shopify.modal.hide("bundle-publish-confirm-modal");
+            publishFetcher.submit(
+              {
+                intent: "publish_online_store",
+                candidateId: detailCandidateId,
+              },
+              { method: "post" },
+            );
+          }}
+        >
+          Activar y publicar
+        </s-button>
+      </s-modal>
+
+      <s-modal
         id="bundle-detail-modal"
         heading="Detalle de Bundles"
         accessibilityLabel="Detalle de Bundles"
@@ -3042,6 +3145,72 @@ export default function Bundles() {
             <s-section heading="Acciones">
 
               <s-stack gap="small">
+
+                {detailMatch.status === "existing_managed" &&
+                  detailMatch.existingProduct?.status === "DRAFT" && (
+                    <s-stack gap="small">
+                      <s-paragraph>
+                        Antes de publicar, la app verificará nuevamente SKU, precio,
+                        peso, stock, componentes y el canal Tienda online.
+                      </s-paragraph>
+
+                      <publishFetcher.Form method="post">
+                        <input type="hidden" name="intent" value="validate_publish" />
+                        <input
+                          type="hidden"
+                          name="candidateId"
+                          value={detailCandidate.id}
+                        />
+                        <s-button
+                          type="submit"
+                          variant="secondary"
+                          disabled={working || publishingBusy}
+                        >
+                          {publishingBusy ? "Verificando..." : "Validar para publicar"}
+                        </s-button>
+                      </publishFetcher.Form>
+
+                      {publicationAudit &&
+                        "candidateId" in publicationAudit &&
+                        publicationAudit.candidateId === detailCandidate.id &&
+                        "ready" in publicationAudit &&
+                        publicationAudit.ready === false &&
+                        publicationAudit.success === false && (
+                          <s-banner
+                            heading="No se puede publicar este Bundles"
+                            tone="warning"
+                          >
+                            {publicationAudit.message}
+                          </s-banner>
+                        )}
+
+                      {publicationApproved && (
+                        <s-banner
+                          heading="Validación aprobada"
+                          tone="success"
+                        >
+                          <s-stack gap="small">
+                            {"checks" in publicationAudit &&
+                              Array.isArray(publicationAudit.checks) &&
+                              publicationAudit.checks.map((check, index) => (
+                                <s-text key={index}>{check}</s-text>
+                              ))}
+                            <s-button
+                              variant="primary"
+                              disabled={working || publishingBusy}
+                              onClick={() =>
+                                void shopify.modal.show(
+                                  "bundle-publish-confirm-modal",
+                                )
+                              }
+                            >
+                              Publicar en Tienda online
+                            </s-button>
+                          </s-stack>
+                        </s-banner>
+                      )}
+                    </s-stack>
+                  )}
 
                 {detailMatch.status === "new" &&
                   needsComponentReview(detailCandidate.id) && (
