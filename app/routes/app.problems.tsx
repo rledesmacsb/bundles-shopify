@@ -140,6 +140,10 @@ export default function Problems() {
     }
 
     for (const issue of readiness.productIssues) {
+      // Stock is an availability constraint, not incomplete product data.
+      // Keep this check in readiness/creation; do not label it a problem.
+      if (issue.code === "out_of_stock") continue;
+
       const previous = mapped.get(issue.componentId);
       if (previous) {
         previous.codes.add(issue.code);
@@ -196,7 +200,9 @@ export default function Problems() {
             return codes.includes("missing_video");
           case "component_data":
             return readiness.productIssues.some(
-              (issue) => issue.componentId === row.id,
+              (issue) =>
+                issue.componentId === row.id &&
+                issue.code !== "out_of_stock",
             );
           case "no_monitor":
             return codes.includes("no_compatible_monitor");
