@@ -3246,6 +3246,13 @@ export default function Bundles() {
 
             </s-section>
 
+            <s-section heading="Peso para despacho">
+              <s-text>
+                El peso de los componentes se suma y se guarda en Shopify en kilogramos (kg).
+                Para borradores creados anteriormente, utiliza «Actualizar peso».
+              </s-text>
+            </s-section>
+
             <s-section heading="Acciones">
 
               <s-stack gap="small">
