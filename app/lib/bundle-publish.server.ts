@@ -193,7 +193,7 @@ export async function validateBundlePublication(
 
     if (!descriptionText) {
       return failed(candidateId,
-        "El borrador no tiene descripción. Usa «Completar descripción si está vacía» antes de publicarlo.");
+        "El borrador no tiene descripción. Usa «Completar campos faltantes de la ficha» antes de publicarlo.");
     }
 
     const seoHandle = String(product.handle ?? "").trim();
