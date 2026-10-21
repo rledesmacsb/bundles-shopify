@@ -86,8 +86,7 @@ export function buildBundleProductContent(
       .filter(Boolean),
   )];
   const connection = ports.length > 0 ? ports.join(", ") : null;
-  const intro =
-    "Este combo reúne un computador, un monitor y periféricos seleccionados para utilizarse en conjunto.";
+  const intro = `El ${candidate.identity.title} de CSBYTE reúne un computador, un monitor compatible y un kit de teclado y mouse en una misma compra${candidate.wifiAdapter ? ", con adaptador Wi-Fi incluido" : ""}. Consulta el detalle de cada componente antes de elegir tu equipo.`;
 
   const list = includedProducts.map((product) =>
     `<li><strong>${escapeHtml(product.label)}:</strong> ${escapeHtml(product.title)}</li>`,
@@ -121,23 +120,51 @@ export function buildBundleProductContent(
     { label: "Entradas de video", value: monitorInputs },
   ]);
 
+  // GEO / AEO: direct, grounded answers to common buyer questions.
+  // These are ordinary semantic HTML headings and paragraphs; Shopify theme
+  // remains responsible for any Product structured data or canonical tags.
+  const includedSummary = [
+    candidate.baseProduct.title,
+    candidate.monitor.title,
+    "teclado y mouse",
+    ...(candidate.wifiAdapter ? ["adaptador Wi-Fi"] : []),
+  ].join(", ");
+
+  const wifiAnswer = candidate.wifiAdapter
+    ? `Sí, se incluye el adaptador Wi-Fi ${candidate.wifiAdapter.title}.`
+    : pcWifi
+      ? `El computador indica Wi-Fi integrado: ${pcWifi}. No se agrega un adaptador Wi-Fi adicional al combo.`
+      : "No se incluye un adaptador Wi-Fi adicional. Revisa la conectividad del computador en su ficha técnica.";
+
+  const videoAnswer = connection
+    ? `Sí. El PC y el monitor comparten estas conexiones de video: ${connection}. La inclusión de cables específicos debe verificarse en cada ficha de producto.`
+    : "Revisa las conexiones del computador y del monitor en sus fichas para confirmar qué cable o adaptador necesitas.";
+
+  const question = (title: string, answer: string) =>
+    `<h3>${escapeHtml(title)}</h3><p>${escapeHtml(answer)}</p>`;
+
   const paragraphs = [
     `<p>${escapeHtml(intro)}</p>`,
+    "<h2>¿Qué incluye este combo PC + monitor?</h2>",
+    `<p>Incluye ${escapeHtml(includedSummary)}.</p>`,
     "<h2>Productos incluidos</h2>",
     `<ul>${list}</ul>`,
     ...(pcDetails
-      ? ["<h2>Datos del computador</h2>", `<ul>${pcDetails}</ul>`]
+      ? ["<h2>Características verificadas del computador</h2>", `<ul>${pcDetails}</ul>`]
       : []),
     ...(monitorDetails
-      ? ["<h2>Datos del monitor</h2>", `<ul>${monitorDetails}</ul>`]
+      ? ["<h2>Características verificadas del monitor</h2>", `<ul>${monitorDetails}</ul>`]
       : []),
-    ...(connection
-      ? [
-          "<h2>Conexión de video</h2>",
-          `<p>El PC y el monitor comparten las siguientes conexiones: ${escapeHtml(connection)}.</p>`,
-        ]
-      : []),
-    "<p>Revisa las características de cada componente y la configuración seleccionada antes de comprar. Solo se incluyen los productos indicados en este combo.</p>",
+    "<h2>Preguntas frecuentes sobre el combo</h2>",
+    question("¿Qué computador y monitor recibiré?",
+      `Recibirás el computador ${candidate.baseProduct.title} y el monitor ${candidate.monitor.title}, junto con los accesorios detallados arriba.`),
+    question("¿El PC y el monitor son compatibles?", videoAnswer),
+    question("¿Incluye teclado y mouse?",
+      `Sí. El combo incluye ${candidate.keyboardMouse.title}.`),
+    question("¿Incluye conectividad Wi-Fi?", wifiAnswer),
+    question("¿Dónde revisar especificaciones, estado y garantía?",
+      "Las características que no se detallan aquí, las condiciones estéticas y las garantías deben verificarse en las fichas y condiciones comerciales de los productos incluidos. No se incluyen accesorios adicionales que no estén indicados."),
+    "<p>Consulta los componentes y su configuración antes de comprar en CSBYTE Chile.</p>",
   ];
 
   return {
@@ -145,7 +172,7 @@ export function buildBundleProductContent(
     descriptionHtml: paragraphs.join("\n"),
     seoTitle: shorten(candidate.identity.title + " | CSBYTE", 70),
     seoDescription: shorten(
-      `Combo de computador, monitor y teclado/mouse en CSBYTE. ${candidate.wifiAdapter ? "Incluye adaptador Wi-Fi. " : ""}Conoce los componentes y su configuración.`,
+      `Combo ${candidate.baseProduct.title} con monitor ${candidate.monitor.title}, teclado y mouse${candidate.wifiAdapter ? " y adaptador Wi-Fi" : ""}. Revisa componentes y compatibilidad en CSBYTE Chile.`,
       160,
     ),
     includedProducts,
