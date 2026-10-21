@@ -3097,9 +3097,9 @@ export default function Bundles() {
               <s-section heading="Descripción y SEO">
                 <s-stack gap="base">
                   <s-paragraph>
-                    Vista previa de la descripción que se asignará al crear
-                    un borrador nuevo. No se sobrescribirán las descripciones
-                    de productos existentes.
+                    Vista previa de la descripción y los datos SEO que se asignarán
+                    al crear un borrador nuevo. Los productos existentes conservarán
+                    sus descripciones y URL actuales.
                   </s-paragraph>
                   <div
                     style={{
@@ -3112,11 +3112,25 @@ export default function Bundles() {
                     }}
                   />
                   <s-text tone="neutral">
-                    Título SEO: {detailDescription.seoTitle}
+                    <strong>Handle SEO:</strong>{" "}
+                    {detailMatch.existingProduct
+                      ? detailMatch.existingProduct.handle
+                        ? `/products/${detailMatch.existingProduct.handle}`
+                        : "Pendiente de confirmar desde Shopify"
+                      : `/products/${detailDescription.handle}`}
                   </s-text>
                   <s-text tone="neutral">
-                    Descripción SEO: {detailDescription.seoDescription}
+                    <strong>Título SEO:</strong> {detailDescription.seoTitle}
                   </s-text>
+                  <s-text tone="neutral">
+                    <strong>Descripción SEO:</strong> {detailDescription.seoDescription}
+                  </s-text>
+                  {detailMatch.existingProduct && (
+                    <s-text tone="neutral">
+                      El handle anterior se mantiene. Editarlo directamente en
+                      Shopify puede requerir una redirección de URL.
+                    </s-text>
+                  )}
                 </s-stack>
               </s-section>
             )}
