@@ -1284,6 +1284,11 @@ async function updateBundleProduct(
                   .identity
                   .title,
 
+              // Apply only to newly created drafts. Existing Shopify URLs
+              // and merchant-managed redirections remain untouched.
+              handle: content.handle,
+              redirectNewHandle: false,
+
               vendor:
                 candidate
                   .identity
@@ -1824,6 +1829,7 @@ async function verifyCreatedBundle(
             vendor
             productType
             status
+            handle
 
             variants(
               first: 2
@@ -1908,6 +1914,9 @@ async function verifyCreatedBundle(
                 string;
 
               status:
+                string;
+
+              handle:
                 string;
 
               variants: {
@@ -2043,6 +2052,13 @@ async function verifyCreatedBundle(
   ) {
     verificationErrors.push(
       "El producto de Bundles no quedó en estado Borrador.",
+    );
+  }
+
+  const expectedHandle = buildBundleProductContent(candidate).handle;
+  if (product.handle !== expectedHandle) {
+    verificationErrors.push(
+      `Handle SEO esperado: /products/${expectedHandle}.`,
     );
   }
 
@@ -2575,7 +2591,51 @@ export async function createDraftBundleFromCandidate(
   }
 
   /* -------------------------------------------------------
-     4. FINAL COMMERCIAL PRICE
+     4. CHECK SEO HANDLE BEFORE CREATING ANY PRODUCT
+     Do not create a partial product if another Shopify product
+     already owns the URL we intend to assign.
+  ------------------------------------------------------- */
+  const expectedHandle = buildBundleProductContent(candidate).handle;
+
+  try {
+    const handleResponse = await admin.graphql(`#graphql
+      query CsbyteCheckBundleSeoHandle($identifier: ProductIdentifierInput!) {
+        productByIdentifier(identifier: $identifier) {
+          id
+        }
+      }
+    `, {
+      variables: { identifier: { handle: expectedHandle } },
+    });
+
+    const handleJson = await handleResponse.json() as {
+      data?: { productByIdentifier?: { id: string } | null };
+      errors?: Array<{ message: string }>;
+    };
+
+    if (handleJson.errors?.length || !handleJson.data) {
+      return {
+        success: false,
+        message: "No se pudo verificar la disponibilidad del handle SEO. No se creó ningún producto.",
+      };
+    }
+
+    if (handleJson.data.productByIdentifier) {
+      return {
+        success: false,
+        message: `El handle SEO /products/${expectedHandle} ya está utilizado por otro producto en Shopify. No se creó el Bundles.`,
+      };
+    }
+  } catch (error) {
+    return {
+      success: false,
+      message: "No fue posible comprobar el handle SEO en Shopify: " +
+        (error instanceof Error ? error.message : "error inesperado"),
+    };
+  }
+
+  /* -------------------------------------------------------
+     5. FINAL COMMERCIAL PRICE
   ------------------------------------------------------- */
 
   const price =
