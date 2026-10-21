@@ -69,6 +69,7 @@ import {
 
 import { buildBundleProductContent } from "../lib/bundle-description";
 import { completeMissingBundleContent } from "../lib/bundle-description.server";
+import { completeMissingBundleCompareAtPrice } from "../lib/bundle-compare-price.server";
 
 /* =========================================================
    LOADER
@@ -277,6 +278,18 @@ export const action =
     if (intent === "complete_description") {
       const candidateId = String(formData.get("candidateId") ?? "").trim();
       const result = await completeMissingBundleContent(admin, candidateId);
+      if (result.success) {
+        invalidateShopBundleCache(session.shop);
+      }
+      return result;
+    }
+
+    /* -----------------------------------------------------
+       COMPLETE COMPARE-AT PRICE ON ONE EXISTING MANAGED DRAFT
+    ----------------------------------------------------- */
+    if (intent === "complete_compare_at_price") {
+      const candidateId = String(formData.get("candidateId") ?? "").trim();
+      const result = await completeMissingBundleCompareAtPrice(admin, candidateId);
       if (result.success) {
         invalidateShopBundleCache(session.shop);
       }
@@ -3187,7 +3200,7 @@ export default function Bundles() {
                   gap="small"
                 >
                   <s-text tone="neutral">
-                    Suma individual
+                    Precio de comparación (suma individual)
                   </s-text>
                   <s-text>
                     {formatPrice(
@@ -3236,6 +3249,21 @@ export default function Bundles() {
             <s-section heading="Acciones">
 
               <s-stack gap="small">
+
+                {detailMatch.status === "existing_managed" &&
+                  detailMatch.existingProduct?.status === "DRAFT" && (
+                    <fetcher.Form method="post">
+                      <input type="hidden" name="intent" value="complete_compare_at_price" />
+                      <input type="hidden" name="candidateId" value={detailCandidate.id} />
+                      <s-button
+                        variant="secondary"
+                        type="submit"
+                        disabled={working || publishingBusy}
+                      >
+                        Completar precio de comparación
+                      </s-button>
+                    </fetcher.Form>
+                  )}
 
                 {detailMatch.status === "existing_managed" &&
                   detailMatch.existingProduct?.status === "DRAFT" && (
