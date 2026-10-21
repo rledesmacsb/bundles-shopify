@@ -1,4 +1,5 @@
 import type { TemplateBundleCandidate } from "./bundle-template-engine";
+import { getTemplateMetafieldValues } from "./bundle-rule-engine";
 
 /**
  * This is deterministic catalog copy, not AI-generated specifications.
@@ -92,10 +93,44 @@ export function buildBundleProductContent(
     `<li><strong>${escapeHtml(product.label)}:</strong> ${escapeHtml(product.title)}</li>`,
   ).join("");
 
+  const detailList = (
+    rows: Array<{ label: string; value: string | null | undefined }>,
+  ): string => rows.filter((row) => Boolean(row.value?.trim()))
+    .map((row) => `<li><strong>${escapeHtml(row.label)}:</strong> ${escapeHtml(row.value!)}</li>`)
+    .join("");
+
+  const baseSku = candidate.baseProduct.variants.nodes[0]?.sku?.trim() ?? "";
+  const monitorSku = candidate.monitor.variants.nodes[0]?.sku?.trim() ?? "";
+  const pcOutputs = getTemplateMetafieldValues(
+    candidate.baseProduct, candidate.template.videoOutputField,
+  ).join(", ");
+  const monitorInputs = getTemplateMetafieldValues(
+    candidate.monitor, candidate.template.videoInputField,
+  ).join(", ");
+  const pcWifi = getTemplateMetafieldValues(
+    candidate.baseProduct, candidate.template.wifiField,
+  ).join(", ");
+
+  const pcDetails = detailList([
+    { label: "SKU del computador", value: baseSku },
+    { label: "Salidas de video", value: pcOutputs },
+    { label: "Wi-Fi integrado", value: pcWifi },
+  ]);
+  const monitorDetails = detailList([
+    { label: "SKU del monitor", value: monitorSku },
+    { label: "Entradas de video", value: monitorInputs },
+  ]);
+
   const paragraphs = [
     `<p>${escapeHtml(intro)}</p>`,
     "<h2>Productos incluidos</h2>",
     `<ul>${list}</ul>`,
+    ...(pcDetails
+      ? ["<h2>Datos del computador</h2>", `<ul>${pcDetails}</ul>`]
+      : []),
+    ...(monitorDetails
+      ? ["<h2>Datos del monitor</h2>", `<ul>${monitorDetails}</ul>`]
+      : []),
     ...(connection
       ? [
           "<h2>Conexión de video</h2>",
