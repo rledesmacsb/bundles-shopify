@@ -133,6 +133,8 @@ export async function validateBundlePublication(
           title
           status
           descriptionHtml
+          handle
+          seo { title description }
           bundleComponents(first: 20) {
             nodes { componentProduct { id } }
             pageInfo { hasNextPage }
@@ -187,6 +189,19 @@ export async function validateBundlePublication(
     if (!descriptionText) {
       return failed(candidateId,
         "El borrador no tiene descripción. Usa «Completar descripción si está vacía» antes de publicarlo.");
+    }
+
+    const seoHandle = String(product.handle ?? "").trim();
+    const seoTitle = String(product.seo?.title ?? "").trim();
+    const seoDescription = String(product.seo?.description ?? "").trim();
+
+    if (!seoHandle || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(seoHandle)) {
+      return failed(candidateId,
+        "El borrador no tiene un handle SEO válido. Revísalo en Shopify antes de publicar.");
+    }
+    if (!seoTitle || !seoDescription) {
+      return failed(candidateId,
+        "Faltan el título o la metadescripción SEO. Complétalos en Shopify antes de publicar.");
     }
 
     const actualComponents: string[] = (product.bundleComponents?.nodes ?? [])
@@ -308,6 +323,7 @@ export async function validateBundlePublication(
         "SKU y precio coinciden con la plantilla",
         "Peso total verificado",
         "Descripción del producto informada",
+        "Handle, título y metadescripción SEO verificados",
         "Canal Tienda online identificado",
       ],
     };
