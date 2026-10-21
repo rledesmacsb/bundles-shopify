@@ -143,6 +143,8 @@ export type CreateDraftBundleResult = {
 
   price?: number;
 
+  compareAtPrice?: number | null;
+
   weightGrams?: number;
 
   partial?: boolean;
@@ -1426,6 +1428,8 @@ async function updateBundleVariant(
   price:
     number,
 
+  compareAtPrice: number | null,
+
   weightGrams:
     number,
 ) {
@@ -1443,6 +1447,7 @@ async function updateBundleVariant(
             productVariants {
               id
               price
+              compareAtPrice
 
               inventoryItem {
                 sku
@@ -1476,17 +1481,16 @@ async function updateBundleVariant(
                 String(
                   price,
                 ),
+              compareAtPrice: compareAtPrice !== null && compareAtPrice > price ? String(compareAtPrice) : null,
+
 
               inventoryItem: {
                 sku,
 
                 measurement: {
                   weight: {
-                    value:
-                      weightGrams,
-
-                    unit:
-                      "GRAMS",
+                    value: Number((weightGrams / 1000).toFixed(3)),
+                    unit: "KILOGRAMS",
                   },
                 },
               },
@@ -1812,6 +1816,8 @@ async function verifyCreatedBundle(
   expectedPrice:
     number,
 
+  expectedCompareAtPrice: number | null,
+
   expectedWeightGrams:
     number,
 ) {
@@ -1837,6 +1843,7 @@ async function verifyCreatedBundle(
               nodes {
                 id
                 price
+                compareAtPrice
 
                 inventoryItem {
                   sku
@@ -1926,6 +1933,8 @@ async function verifyCreatedBundle(
 
                   price:
                     string;
+                  compareAtPrice: string | null;
+
 
                   inventoryItem?:
                     | {
@@ -2106,6 +2115,13 @@ async function verifyCreatedBundle(
     );
   }
 
+  const actualCompareAt = variant.compareAtPrice == null ? null : Number(variant.compareAtPrice);
+  if (actualCompareAt !== expectedCompareAtPrice) {
+    verificationErrors.push(expectedCompareAtPrice === null
+      ? "No debe existir precio de comparación sin ahorro."
+      : "Precio de comparación esperado: " + expectedCompareAtPrice + ".");
+  }
+
   const actualWeight =
     variant
       .inventoryItem
@@ -2123,10 +2139,10 @@ async function verifyCreatedBundle(
 
   if (
     actualWeightGrams !==
-    expectedWeightGrams
+    expectedWeightGrams || actualWeight?.unit !== "KILOGRAMS"
   ) {
     verificationErrors.push(
-      `Peso esperado: ${expectedWeightGrams} g.`,
+      "Peso esperado: " + (expectedWeightGrams / 1000).toFixed(3) + " kg.",
     );
   }
 
@@ -2822,6 +2838,7 @@ export async function createDraftBundleFromCandidate(
       parentVariant.id,
       freshExpectedSku,
       price.finalPrice,
+      price.componentPrice > price.finalPrice ? price.componentPrice : null,
       bundleWeight.weightGrams,
     );
 
@@ -2893,6 +2910,7 @@ export async function createDraftBundleFromCandidate(
       candidate,
       freshExpectedSku,
       price.finalPrice,
+      price.componentPrice > price.finalPrice ? price.componentPrice : null,
       bundleWeight.weightGrams,
     );
 
@@ -2934,6 +2952,8 @@ export async function createDraftBundleFromCandidate(
 
     price:
       price.finalPrice,
+
+    compareAtPrice: price.componentPrice > price.finalPrice ? price.componentPrice : null,
 
     weightGrams:
       bundleWeight.weightGrams,
@@ -3309,12 +3329,8 @@ export async function syncExistingBundleWeightFromCandidate(
               inventoryItem: {
                 measurement: {
                   weight: {
-                    value:
-                      bundleWeight
-                        .weightGrams,
-
-                    unit:
-                      "GRAMS",
+                    value: Number((bundleWeight.weightGrams / 1000).toFixed(3)),
+                    unit: "KILOGRAMS",
                   },
                 },
               },
@@ -3384,6 +3400,6 @@ export async function syncExistingBundleWeightFromCandidate(
       bundleWeight.weightGrams,
 
     message:
-      `Peso actualizado correctamente: ${bundleWeight.weightGrams} g.`,
+      `Peso actualizado correctamente: ${(bundleWeight.weightGrams / 1000).toFixed(3)} kg.`,
   };
 }
