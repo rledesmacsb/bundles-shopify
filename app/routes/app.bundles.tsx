@@ -68,6 +68,7 @@ import {
 } from "../lib/bundle-publish.server";
 
 import { buildBundleProductContent } from "../lib/bundle-description";
+import { completeEmptyBundleDescription } from "../lib/bundle-description.server";
 
 /* =========================================================
    LOADER
@@ -266,6 +267,19 @@ export const action =
         invalidateShopBundleCache(session.shop);
       }
 
+      return result;
+    }
+
+    /* -----------------------------------------------------
+       COMPLETE EMPTY DESCRIPTION ON AN EXISTING MANAGED DRAFT
+       Never overwrite manual product copy.
+    ----------------------------------------------------- */
+    if (intent === "complete_description") {
+      const candidateId = String(formData.get("candidateId") ?? "").trim();
+      const result = await completeEmptyBundleDescription(admin, candidateId);
+      if (result.success) {
+        invalidateShopBundleCache(session.shop);
+      }
       return result;
     }
 
@@ -3208,6 +3222,21 @@ export default function Bundles() {
             <s-section heading="Acciones">
 
               <s-stack gap="small">
+
+                {detailMatch.status === "existing_managed" &&
+                  detailMatch.existingProduct?.status === "DRAFT" && (
+                    <fetcher.Form method="post">
+                      <input type="hidden" name="intent" value="complete_description" />
+                      <input type="hidden" name="candidateId" value={detailCandidate.id} />
+                      <s-button
+                        variant="secondary"
+                        type="submit"
+                        disabled={working || publishingBusy}
+                      >
+                        Completar descripción si está vacía
+                      </s-button>
+                    </fetcher.Form>
+                  )}
 
                 {detailMatch.status === "existing_managed" &&
                   detailMatch.existingProduct?.status === "DRAFT" && (
