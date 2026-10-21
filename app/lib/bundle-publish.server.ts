@@ -92,9 +92,13 @@ export async function validateBundlePublication(
       return failed(candidateId, "No hay stock suficiente en los componentes.");
     }
 
-    const expectedPrice = calculateTemplateCandidatePrice(
+    const calculatedPrice = calculateTemplateCandidatePrice(
       candidate, runtime.priceConfig,
-    ).finalPrice;
+    );
+    const expectedPrice = calculatedPrice.finalPrice;
+    const expectedCompareAtPrice = calculatedPrice.componentPrice > expectedPrice
+      ? calculatedPrice.componentPrice
+      : null;
 
     if (!Number.isFinite(expectedPrice) || expectedPrice <= 0) {
       return failed(candidateId, "El precio calculado para el Bundles no es válido.");
@@ -143,6 +147,7 @@ export async function validateBundlePublication(
             nodes {
               id
               price
+              compareAtPrice
               inventoryItem {
                 sku
                 measurement { weight { value unit } }
@@ -227,6 +232,15 @@ export async function validateBundlePublication(
         "El precio del Bundles cambió. Revísalo antes de publicarlo.");
     }
 
+    const currentCompareAt = variant.compareAtPrice == null
+      ? null : Number(variant.compareAtPrice);
+    if (currentCompareAt !== expectedCompareAtPrice) {
+      return failed(candidateId,
+        expectedCompareAtPrice === null
+          ? "No corresponde un precio de comparación cuando no hay ahorro. Revísalo en Shopify."
+          : "Falta o no coincide el precio de comparación. Usa «Completar precio de comparación» antes de publicar.");
+    }
+
     const sourceProducts = json.data?.nodes ?? [];
     if (sourceProducts.length !== componentIds.length ||
       sourceProducts.some((item: any) => !item || item.totalInventory <= 0 ||
@@ -252,10 +266,11 @@ export async function validateBundlePublication(
     if (
       !Number.isFinite(expectedWeight) || expectedWeight <= 0 ||
       !Number.isFinite(savedWeight) ||
-      Math.abs(Math.round(expectedWeight) - Math.round(savedWeight)) > 1
+      Math.abs(Math.round(expectedWeight) - Math.round(savedWeight)) > 1 ||
+      parentWeight?.unit !== "KILOGRAMS"
     ) {
       return failed(candidateId,
-        "El peso del Bundles no coincide con la suma de sus componentes. Utiliza Actualizar peso.");
+        "El peso del Bundle debe expresarse en kg y coincidir con la suma de sus componentes. Utiliza Actualizar peso.");
     }
 
     const scopesJson = await graphql(admin, `#graphql
@@ -320,8 +335,8 @@ export async function validateBundlePublication(
       checks: [
         "Producto administrado por CSBYTE en estado Borrador",
         "Componentes y stock vigentes",
-        "SKU y precio coinciden con la plantilla",
-        "Peso total verificado",
+        "SKU, precio y precio de comparación verificados",
+        "Peso total verificado en kilogramos",
         "Descripción del producto informada",
         "Handle, título y metadescripción SEO verificados",
         "Canal Tienda online identificado",
