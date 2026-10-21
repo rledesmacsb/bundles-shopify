@@ -24,7 +24,42 @@ function shorten(value: string, limit: number): string {
   return safePrefix.trimEnd() + "…";
 }
 
+/**
+ * Stable, readable Shopify handle. Keep key terms at the beginning,
+ * then a short deterministic suffix to distinguish different combos
+ * even when their names share the same truncated prefix.
+ * Never derive it from runtime inventory, price, or date.
+ */
+export function buildBundleSeoHandle(candidate: TemplateBundleCandidate): string {
+  const base = candidate.identity.title
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  // FNV-1a 32-bit: consistent on server and in the Shopify embedded UI.
+  const uniqueValue = [
+    candidate.id,
+    candidate.identity.sku,
+    candidate.monitor.id,
+    candidate.templateId,
+  ].join("|");
+  let digest = 2166136261;
+  for (let i = 0; i < uniqueValue.length; i++) {
+    digest ^= uniqueValue.charCodeAt(i);
+    digest = Math.imul(digest, 16777619);
+  }
+  const suffix = (digest >>> 0).toString(36).padStart(7, "0");
+
+  const truncated = (base || "combo-csbyte")
+    .slice(0, 112 - suffix.length - 1)
+    .replace(/-+$/g, "");
+  return `${truncated}-${suffix}`;
+}
+
 export type BundleProductContent = {
+  handle: string;
   descriptionHtml: string;
   seoTitle: string;
   seoDescription: string;
@@ -71,6 +106,7 @@ export function buildBundleProductContent(
   ];
 
   return {
+    handle: buildBundleSeoHandle(candidate),
     descriptionHtml: paragraphs.join("\n"),
     seoTitle: shorten(candidate.identity.title + " | CSBYTE", 70),
     seoDescription: shorten(
