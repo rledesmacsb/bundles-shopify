@@ -6,6 +6,8 @@ import type {
   TemplateBundleCandidate,
 } from "./bundle-template-engine";
 
+import { buildBundleProductContent } from "./bundle-description";
+
 import {
   buildTemplateBundleState,
   calculateTemplateCandidatePrice,
@@ -1242,6 +1244,10 @@ async function updateBundleProduct(
   candidate:
     TemplateBundleCandidate,
 ) {
+  // Only called when creating a new draft. Existing products and any manual
+  // descriptions already written in Shopify are deliberately left untouched.
+  const content = buildBundleProductContent(candidate);
+
   try {
     const response =
       await admin.graphql(
@@ -1287,6 +1293,14 @@ async function updateBundleProduct(
                 candidate
                   .identity
                   .productType,
+
+              descriptionHtml:
+                content.descriptionHtml,
+
+              seo: {
+                title: content.seoTitle,
+                description: content.seoDescription,
+              },
 
               status:
                 "DRAFT",
