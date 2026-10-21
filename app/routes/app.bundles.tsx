@@ -68,7 +68,7 @@ import {
 } from "../lib/bundle-publish.server";
 
 import { buildBundleProductContent } from "../lib/bundle-description";
-import { completeEmptyBundleDescription } from "../lib/bundle-description.server";
+import { completeMissingBundleContent } from "../lib/bundle-description.server";
 
 /* =========================================================
    LOADER
@@ -276,7 +276,7 @@ export const action =
     ----------------------------------------------------- */
     if (intent === "complete_description") {
       const candidateId = String(formData.get("candidateId") ?? "").trim();
-      const result = await completeEmptyBundleDescription(admin, candidateId);
+      const result = await completeMissingBundleContent(admin, candidateId);
       if (result.success) {
         invalidateShopBundleCache(session.shop);
       }
@@ -3097,9 +3097,9 @@ export default function Bundles() {
               <s-section heading="Descripción y SEO">
                 <s-stack gap="base">
                   <s-paragraph>
-                    Vista previa de la descripción y los datos SEO que se asignarán
-                    al crear un borrador nuevo. Los productos existentes conservarán
-                    sus descripciones y URL actuales.
+                    Vista previa de la descripción y los datos SEO de un borrador nuevo.
+                    En borradores existentes, puedes completar solo los campos vacíos,
+                    sin sustituir textos ni cambiar su URL.
                   </s-paragraph>
                   <div
                     style={{
@@ -3247,7 +3247,7 @@ export default function Bundles() {
                         type="submit"
                         disabled={working || publishingBusy}
                       >
-                        Completar descripción si está vacía
+                        Completar campos faltantes de la ficha
                       </s-button>
                     </fetcher.Form>
                   )}
