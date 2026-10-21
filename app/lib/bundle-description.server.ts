@@ -27,11 +27,11 @@ function htmlHasContent(html: string | null | undefined): boolean {
 }
 
 /**
- * Adds a description to an existing managed DRAFT only if Shopify confirms
- * that its description is empty. This never updates SEO, title or components.
+ * Fills missing content on one managed DRAFT without overwriting
+ * Shopify descriptions, SEO title, SEO description, handle or variants.
  * There is deliberately no bulk action or overwrite flag.
  */
-export async function completeEmptyBundleDescription(
+export async function completeMissingBundleContent(
   admin: Admin,
   candidateId: string,
 ): Promise<Result> {
@@ -73,7 +73,7 @@ export async function completeEmptyBundleDescription(
       existing.sku !== candidate.identity.sku
     ) {
       return rejected(
-        "La descripción solo puede completarse en un borrador administrado por CSBYTE con SKU coincidente.",
+        "La ficha solo puede completarse en un borrador administrado por CSBYTE con SKU coincidente.",
       );
     }
 
@@ -83,6 +83,7 @@ export async function completeEmptyBundleDescription(
           id
           status
           descriptionHtml
+          seo { title description }
           variants(first: 2) {
             nodes { inventoryItem { sku } }
           }
@@ -96,6 +97,7 @@ export async function completeEmptyBundleDescription(
           id: string;
           status: string;
           descriptionHtml: string | null;
+          seo?: { title?: string | null; description?: string | null } | null;
           variants: { nodes: Array<{ inventoryItem?: { sku: string | null } | null }> };
         } | null;
       };
@@ -118,33 +120,52 @@ export async function completeEmptyBundleDescription(
       return rejected("El borrador cambió en Shopify. Actualiza antes de continuar.");
     }
 
-    if (htmlHasContent(product.descriptionHtml)) {
-      return rejected(
-        "Este producto ya tiene una descripción en Shopify. No se modificó su contenido.",
-      );
+    const content = buildBundleProductContent(candidate);
+    const missingDescription = !htmlHasContent(product.descriptionHtml);
+    const missingSeoTitle = !product.seo?.title?.trim();
+    const missingSeoDescription = !product.seo?.description?.trim();
+
+    if (!missingDescription && !missingSeoTitle && !missingSeoDescription) {
+      return {
+        success: true,
+        productId: existing.id,
+        message: "La ficha ya contiene descripción, título SEO y metadescripción. No se modificó.",
+      };
     }
 
-    const content = buildBundleProductContent(candidate);
+    // Shopify must retain merchant-authored values as-is; send only missing
+    // properties. For SEO, include the other existing value to preserve it.
+    const updates: Record<string, unknown> = { id: existing.id };
+    if (missingDescription) updates.descriptionHtml = content.descriptionHtml;
+    if (missingSeoTitle || missingSeoDescription) {
+      updates.seo = {
+        title: missingSeoTitle ? content.seoTitle : product.seo!.title,
+        description: missingSeoDescription
+          ? content.seoDescription
+          : product.seo!.description,
+      };
+    }
+
     const update = await admin.graphql(`#graphql
-      mutation CsbyteFillEmptyBundleDescription($product: ProductUpdateInput!) {
+      mutation CsbyteCompleteBundleContent($product: ProductUpdateInput!) {
         productUpdate(product: $product) {
-          product { id status descriptionHtml }
+          product { id status descriptionHtml seo { title description } }
           userErrors { field message }
         }
       }
     `, {
-      variables: {
-        product: {
-          id: existing.id,
-          descriptionHtml: content.descriptionHtml,
-        },
-      },
+      variables: { product: updates },
     });
 
     const updated = await update.json() as {
       data?: {
         productUpdate?: {
-          product?: { id: string; status: string; descriptionHtml: string | null } | null;
+          product?: {
+            id: string;
+            status: string;
+            descriptionHtml: string | null;
+            seo?: { title?: string | null; description?: string | null } | null;
+          } | null;
           userErrors?: Array<{ message: string }>;
         };
       };
@@ -165,18 +186,22 @@ export async function completeEmptyBundleDescription(
     if (
       saved?.id !== existing.id ||
       saved.status !== "DRAFT" ||
-      !htmlHasContent(saved.descriptionHtml)
+      !htmlHasContent(saved.descriptionHtml) ||
+      !saved.seo?.title?.trim() ||
+      !saved.seo?.description?.trim()
     ) {
-      return rejected("Shopify no confirmó la descripción. Revisa el borrador antes de reintentar.");
+      return rejected(
+        "Shopify no confirmó todos los campos. Revisa el borrador antes de reintentar.",
+      );
     }
 
     return {
       success: true,
       productId: existing.id,
-      message: "Descripción agregada al borrador sin modificar el resto del producto.",
+      message: "Campos faltantes de la ficha completados; se conservaron los textos existentes.",
     };
   } catch (error) {
-    return rejected("No se pudo completar la descripción: " +
+    return rejected("No se pudo completar la ficha: " +
       (error instanceof Error ? error.message : "Error inesperado"));
   }
 }
