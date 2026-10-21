@@ -67,6 +67,8 @@ import {
   publishValidatedBundle,
 } from "../lib/bundle-publish.server";
 
+import { buildBundleProductContent } from "../lib/bundle-description";
+
 /* =========================================================
    LOADER
 ========================================================= */
@@ -1610,6 +1612,10 @@ export default function Bundles() {
         )
       : null;
 
+  const detailDescription = detailCandidate
+    ? buildBundleProductContent(detailCandidate)
+    : null;
+
   const systemErrors =
     Array.from(
       new Set([
@@ -3072,6 +3078,34 @@ export default function Bundles() {
               </s-stack>
 
             </s-section>
+
+            {detailDescription && (
+              <s-section heading="Descripción y SEO">
+                <s-stack gap="base">
+                  <s-paragraph>
+                    Vista previa de la descripción que se asignará al crear
+                    un borrador nuevo. No se sobrescribirán las descripciones
+                    de productos existentes.
+                  </s-paragraph>
+                  <div
+                    style={{
+                      padding: "14px",
+                      border: "1px solid var(--p-color-border-secondary, #e3e3e3)",
+                      borderRadius: "8px",
+                    }}
+                    dangerouslySetInnerHTML={{
+                      __html: detailDescription.descriptionHtml,
+                    }}
+                  />
+                  <s-text tone="neutral">
+                    Título SEO: {detailDescription.seoTitle}
+                  </s-text>
+                  <s-text tone="neutral">
+                    Descripción SEO: {detailDescription.seoDescription}
+                  </s-text>
+                </s-stack>
+              </s-section>
+            )}
 
             <s-section heading="Compatibilidad">
 
