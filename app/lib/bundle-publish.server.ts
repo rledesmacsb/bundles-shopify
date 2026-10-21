@@ -132,6 +132,7 @@ export async function validateBundlePublication(
           id
           title
           status
+          descriptionHtml
           bundleComponents(first: 20) {
             nodes { componentProduct { id } }
             pageInfo { hasNextPage }
@@ -176,6 +177,16 @@ export async function validateBundlePublication(
 
     if (product.variants?.nodes?.length !== 1) {
       return failed(candidateId, "El producto Bundles debe tener una sola variante.");
+    }
+
+    const descriptionText = String(product.descriptionHtml ?? "")
+      .replace(/<[^>]*>/g, " ")
+      .replace(/&nbsp;/gi, " ")
+      .trim();
+
+    if (!descriptionText) {
+      return failed(candidateId,
+        "El borrador no tiene descripción. Usa «Completar descripción si está vacía» antes de publicarlo.");
     }
 
     const actualComponents: string[] = (product.bundleComponents?.nodes ?? [])
@@ -296,6 +307,7 @@ export async function validateBundlePublication(
         "Componentes y stock vigentes",
         "SKU y precio coinciden con la plantilla",
         "Peso total verificado",
+        "Descripción del producto informada",
         "Canal Tienda online identificado",
       ],
     };
