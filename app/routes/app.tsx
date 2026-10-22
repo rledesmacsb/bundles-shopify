@@ -41,6 +41,14 @@ export const loader =
     };
   };
 
+/*
+ * The app shell only returns the public API key. It does not
+ * need to authenticate again when moving between child pages
+ * or after child actions.
+ */
+export const shouldRevalidate =
+  () => false;
+
 /* =========================================================
    APP
 ========================================================= */
@@ -63,12 +71,12 @@ export default function App() {
 
       <s-app-nav>
 
-        <s-link href="/app">
-          Home
-        </s-link>
-
         <s-link href="/app/bundles">
           Bundles
+        </s-link>
+
+        <s-link href="/app">
+          Resumen
         </s-link>
 
         <s-link href="/app/templates">

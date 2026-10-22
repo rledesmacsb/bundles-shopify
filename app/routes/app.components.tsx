@@ -11,7 +11,6 @@ import type {
 } from "react-router";
 
 import {
-  Link,
   useFetcher,
   useLoaderData,
 } from "react-router";
@@ -34,10 +33,14 @@ import {
 } from "../lib/bundle-engine";
 
 import {
-  loadPcMonitorBundleData,
   parseStoredIds,
   savePcMonitorBundleConfig,
 } from "../lib/bundle-data.server";
+
+import {
+  invalidateShopBundleCache,
+  loadCachedPcMonitorBundleData,
+} from "../lib/bundle-cache.server";
 
 /* =========================================================
    LOADER
@@ -47,13 +50,17 @@ export const loader =
   async ({
     request,
   }: LoaderFunctionArgs) => {
-    const { admin } =
+    const {
+      admin,
+      session,
+    } =
       await authenticate.admin(
         request,
       );
 
-    return loadPcMonitorBundleData(
+    return loadCachedPcMonitorBundleData(
       admin,
+      session.shop,
     );
   };
 
@@ -65,7 +72,10 @@ export const action =
   async ({
     request,
   }: ActionFunctionArgs) => {
-    const { admin } =
+    const {
+      admin,
+      session,
+    } =
       await authenticate.admin(
         request,
       );
@@ -149,17 +159,28 @@ export const action =
         : selectedWifiAdapterIds[0] ??
           null;
 
-    return savePcMonitorBundleConfig(
-      admin,
-      {
-        selectedMonitorIds,
-        selectedKeyboardMouseIds,
-        selectedWifiAdapterIds,
+    const result =
+      await savePcMonitorBundleConfig(
+        admin,
+        {
+          selectedMonitorIds,
+          selectedKeyboardMouseIds,
+          selectedWifiAdapterIds,
 
-        primaryKeyboardMouseId,
-        primaryWifiAdapterId,
-      },
-    );
+          primaryKeyboardMouseId,
+          primaryWifiAdapterId,
+        },
+      );
+
+    if (
+      result.success
+    ) {
+      invalidateShopBundleCache(
+        session.shop,
+      );
+    }
+
+    return result;
   };
 
 /* =========================================================
@@ -168,39 +189,39 @@ export const action =
 
 function ProductThumb({
   product,
-  size = 52,
+  size = "base",
 }: {
   product:
     | ProductNode
     | null
     | undefined;
 
-  size?: number;
+  size?:
+    | "small"
+    | "small-200"
+    | "small-100"
+    | "base"
+    | "large"
+    | "large-100";
 }) {
-  if (!product?.featuredImage?.url) {
-    return (
-      <div
-        className="csb-thumb csb-thumb--empty"
-        style={{
-          width: size,
-          height: size,
-        }}
-      >
-        —
-      </div>
-    );
-  }
-
   return (
-    <img
-      className="csb-thumb"
-      src={product.featuredImage.url}
-      alt={
-        product.featuredImage.altText ??
-        product.title
+    <s-thumbnail
+      src={
+        product
+          ?.featuredImage
+          ?.url
       }
-      width={size}
-      height={size}
+      alt={
+        product
+          ?.featuredImage
+          ?.altText ??
+        product
+          ?.title ??
+        "Sin imagen"
+      }
+      size={
+        size
+      }
     />
   );
 }
@@ -637,583 +658,281 @@ export default function Components() {
      ROWS
   ======================================================= */
 
-  function renderMonitor(
-    monitor: ProductNode,
-  ) {
-    const selected =
-      monitorSet.has(monitor.id);
-
-    const info =
-      getProductInfo(monitor);
-
-    const compatibleCount =
-      state.readyDesktopProducts.filter(
-        (pc) =>
-          isDirectlyCompatible(
-            pc,
-            monitor,
-          ),
-      ).length;
-
+  function renderComponentHeader() {
     return (
-      <div
-        className={
-          selected
-            ? "csb-row csb-row--selected"
-            : "csb-row"
-        }
-        key={monitor.id}
-      >
-        <ProductThumb
-          product={monitor}
-        />
-
-        <div className="csb-row__content">
-          <div className="csb-row__title">
-            {monitor.title}
-          </div>
-
-          <div className="csb-meta">
-            <span className="csb-chip">
-              Stock{" "}
-              {monitor.totalInventory}
-            </span>
-
-            <span className="csb-chip">
-              {formatPrice(
-                getPrice(monitor),
-                data.currencyCode,
-              )}
-            </span>
-
-            <span className="csb-chip">
-              {compatibleCount} PC compatibles
-            </span>
-          </div>
-
-          <div className="csb-small">
-            Entradas: {info.video}
-          </div>
-        </div>
-
-        <s-checkbox
-          label="Usar"
-          checked={selected}
-          onChange={(event) => {
-            const target =
-              event.currentTarget as unknown as {
-                checked: boolean;
-              };
-
-            toggleMonitor(
-              monitor.id,
-              target.checked,
-            );
-          }}
-        />
+      <div className="csb-components-table-head" role="row">
+        <span role="columnheader">Producto</span>
+        <span role="columnheader">Stock</span>
+        <span role="columnheader">Precio</span>
+        <span role="columnheader">Detalles</span>
+        <span role="columnheader">Usar</span>
       </div>
     );
   }
 
-  function renderKeyboard(
-    product: ProductNode,
-  ) {
-    const selected =
-      keyboardSet.has(product.id);
-
-    const primary =
-      product.id ===
-      primaryKeyboardMouseId;
+  function renderMonitor(monitor: ProductNode) {
+    const selected = monitorSet.has(monitor.id);
+    const info = getProductInfo(monitor);
+    const compatibleCount = state.readyDesktopProducts.filter(
+      (pc) => isDirectlyCompatible(pc, monitor),
+    ).length;
 
     return (
-      <div
-        className={
-          selected
-            ? "csb-row csb-row--selected"
-            : "csb-row"
-        }
-        key={product.id}
-      >
-        <ProductThumb
-          product={product}
-        />
-
-        <div className="csb-row__content">
-          <div className="csb-row__title">
-            {product.title}
+      <div className="csb-components-row" role="row" key={monitor.id}>
+        <div className="csb-components-cell--product" role="cell">
+          <div className="csb-components-product">
+            <ProductThumb product={monitor} size="small-200" />
+            <div className="csb-components-product-name">
+              <s-text>{monitor.title}</s-text>
+            </div>
           </div>
-
-          <div className="csb-meta">
-            <span className="csb-chip">
-              Stock{" "}
-              {product.totalInventory}
-            </span>
-
-            <span className="csb-chip">
-              {formatPrice(
-                getPrice(product),
-                data.currencyCode,
-              )}
-            </span>
-
-            {primary && (
-              <span className="csb-chip csb-chip--success">
-                Principal
-              </span>
-            )}
-          </div>
-
-          {selected && (
-            <label className="csb-radio">
-              <input
-                type="radio"
-                checked={primary}
-                name="keyboard-primary"
-                onChange={() =>
-                  setPrimaryKeyboardMouseId(
-                    product.id,
-                  )
-                }
-              />
-              Usar como principal
-            </label>
-          )}
         </div>
-
-        <s-checkbox
-          label="Usar"
-          checked={selected}
-          onChange={(event) => {
-            const target =
-              event.currentTarget as unknown as {
-                checked: boolean;
-              };
-
-            toggleKeyboard(
-              product.id,
-              target.checked,
-            );
-          }}
-        />
+        <div className="csb-components-cell--stock" role="cell">
+          <span className="csb-components-mobile-label">Stock</span>
+          <span>{monitor.totalInventory}</span>
+        </div>
+        <div className="csb-components-cell--price" role="cell">
+          <span className="csb-components-mobile-label">Precio</span>
+          <span>{formatPrice(getPrice(monitor), data.currencyCode)}</span>
+        </div>
+        <div className="csb-components-cell--detail" role="cell">
+          <span className="csb-components-mobile-label">Detalles</span>
+          <div>{compatibleCount} PC compatibles</div>
+          <div className="csb-components-detail-secondary">{info.video || "Sin entradas informadas"}</div>
+        </div>
+        <div className="csb-components-cell--use" role="cell">
+          <s-checkbox
+            label="Usar"
+            checked={selected}
+            onChange={(event) => {
+              const target = event.currentTarget as unknown as { checked: boolean };
+              toggleMonitor(monitor.id, target.checked);
+            }}
+          />
+        </div>
       </div>
     );
   }
 
-  function renderWifi(
-    product: ProductNode,
-  ) {
-    const selected =
-      wifiSet.has(product.id);
-
-    const primary =
-      product.id ===
-      primaryWifiAdapterId;
+  function renderKeyboard(product: ProductNode) {
+    const selected = keyboardSet.has(product.id);
+    const primary = product.id === primaryKeyboardMouseId;
 
     return (
-      <div
-        className={
-          selected
-            ? "csb-row csb-row--selected"
-            : "csb-row"
-        }
-        key={product.id}
-      >
-        <ProductThumb
-          product={product}
-        />
-
-        <div className="csb-row__content">
-          <div className="csb-row__title">
-            {product.title}
+      <div className="csb-components-row" role="row" key={product.id}>
+        <div className="csb-components-cell--product" role="cell">
+          <div className="csb-components-product">
+            <ProductThumb product={product} size="small-200" />
+            <div className="csb-components-product-name">
+              <s-text>{product.title}</s-text>
+            </div>
           </div>
-
-          <div className="csb-meta">
-            <span className="csb-chip">
-              Stock{" "}
-              {product.totalInventory}
-            </span>
-
-            <span className="csb-chip">
-              {formatPrice(
-                getPrice(product),
-                data.currencyCode,
-              )}
-            </span>
-
-            {primary && (
-              <span className="csb-chip csb-chip--success">
-                Principal
-              </span>
-            )}
-          </div>
-
-          {selected && (
-            <label className="csb-radio">
-              <input
-                type="radio"
-                checked={primary}
-                name="wifi-primary"
-                onChange={() =>
-                  setPrimaryWifiAdapterId(
-                    product.id,
-                  )
-                }
-              />
-              Usar como principal
-            </label>
+        </div>
+        <div className="csb-components-cell--stock" role="cell">
+          <span className="csb-components-mobile-label">Stock</span>
+          <span>{product.totalInventory}</span>
+        </div>
+        <div className="csb-components-cell--price" role="cell">
+          <span className="csb-components-mobile-label">Precio</span>
+          <span>{formatPrice(getPrice(product), data.currencyCode)}</span>
+        </div>
+        <div className="csb-components-cell--detail" role="cell">
+          <span className="csb-components-mobile-label">Prioridad</span>
+          {primary ? (
+            <s-badge tone="success">Principal</s-badge>
+          ) : selected ? (
+            <s-button
+              variant="tertiary"
+              onClick={() => setPrimaryKeyboardMouseId(product.id)}
+            >
+              Definir principal
+            </s-button>
+          ) : (
+            <s-text tone="neutral">—</s-text>
           )}
         </div>
+        <div className="csb-components-cell--use" role="cell">
+          <s-checkbox
+            label="Usar"
+            checked={selected}
+            onChange={(event) => {
+              const target = event.currentTarget as unknown as { checked: boolean };
+              toggleKeyboard(product.id, target.checked);
+            }}
+          />
+        </div>
+      </div>
+    );
+  }
 
-        <s-checkbox
-          label="Usar"
-          checked={selected}
-          onChange={(event) => {
-            const target =
-              event.currentTarget as unknown as {
-                checked: boolean;
-              };
+  function renderWifi(product: ProductNode) {
+    const selected = wifiSet.has(product.id);
+    const primary = product.id === primaryWifiAdapterId;
 
-            toggleWifi(
-              product.id,
-              target.checked,
-            );
-          }}
-        />
+    return (
+      <div className="csb-components-row" role="row" key={product.id}>
+        <div className="csb-components-cell--product" role="cell">
+          <div className="csb-components-product">
+            <ProductThumb product={product} size="small-200" />
+            <div className="csb-components-product-name">
+              <s-text>{product.title}</s-text>
+            </div>
+          </div>
+        </div>
+        <div className="csb-components-cell--stock" role="cell">
+          <span className="csb-components-mobile-label">Stock</span>
+          <span>{product.totalInventory}</span>
+        </div>
+        <div className="csb-components-cell--price" role="cell">
+          <span className="csb-components-mobile-label">Precio</span>
+          <span>{formatPrice(getPrice(product), data.currencyCode)}</span>
+        </div>
+        <div className="csb-components-cell--detail" role="cell">
+          <span className="csb-components-mobile-label">Prioridad</span>
+          {primary ? (
+            <s-badge tone="success">Principal</s-badge>
+          ) : selected ? (
+            <s-button
+              variant="tertiary"
+              onClick={() => setPrimaryWifiAdapterId(product.id)}
+            >
+              Definir principal
+            </s-button>
+          ) : (
+            <s-text tone="neutral">—</s-text>
+          )}
+        </div>
+        <div className="csb-components-cell--use" role="cell">
+          <s-checkbox
+            label="Usar"
+            checked={selected}
+            onChange={(event) => {
+              const target = event.currentTarget as unknown as { checked: boolean };
+              toggleWifi(product.id, target.checked);
+            }}
+          />
+        </div>
       </div>
     );
   }
 
   return (
-    <s-page heading="Componentes">
+    <s-page
+      heading="Componentes"
+      inlineSize="large"
+    >
+
+      <s-stack gap="base">
+
       <style>{`
-        .csb-page {
-          max-width: 1350px;
-          margin: 0 auto;
+        .csb-components-table {
+          container-type: inline-size;
+          min-width: 0;
+          width: 100%;
         }
-
-        .csb-heading {
-          display: flex;
-          justify-content: space-between;
-          gap: 20px;
-          align-items: flex-start;
-          margin-bottom: 18px;
-        }
-
-        .csb-title {
-          font-size: 24px;
-          font-weight: 700;
-          margin: 0 0 5px;
-        }
-
-        .csb-description {
-          margin: 0;
-          color: #616161;
-          font-size: 13px;
-        }
-
-        .csb-layout {
+        .csb-components-table-head,
+        .csb-components-row {
           display: grid;
-          grid-template-columns: minmax(0, 1fr) 330px;
-          gap: 18px;
-          align-items: start;
-        }
-
-        .csb-main,
-        .csb-preview {
-          border: 1px solid #e3e3e3;
-          border-radius: 14px;
-          background: white;
-        }
-
-        .csb-main {
-          padding: 16px;
-        }
-
-        .csb-group {
-          border: 1px solid #e3e3e3;
-          border-radius: 12px;
-          overflow: hidden;
-          margin-bottom: 14px;
-        }
-
-        .csb-group:last-child {
-          margin-bottom: 0;
-        }
-
-        .csb-group__header {
-          padding: 14px;
-          border-bottom: 1px solid #ededed;
-          display: flex;
-          justify-content: space-between;
-          gap: 12px;
+          grid-template-columns: minmax(0, 1fr) 80px 115px 220px 90px;
+          gap: 14px;
           align-items: center;
-        }
-
-        .csb-group__title {
-          font-size: 14px;
-          font-weight: 650;
-          margin-bottom: 4px;
-        }
-
-        .csb-group__description {
-          font-size: 11.5px;
-          color: #616161;
-        }
-
-        .csb-count {
-          background: #f4f0ff;
-          color: #5c35d5;
-          padding: 3px 8px;
-          border-radius: 999px;
-          font-size: 10.5px;
-          margin-left: 7px;
-        }
-
-        .csb-link-button,
-        .csb-outline-button {
-          appearance: none;
-          border: 1px solid #c9c9c9;
-          background: white;
-          border-radius: 8px;
-          padding: 6px 11px;
-          font: inherit;
-          font-size: 11.5px;
-          font-weight: 600;
-          cursor: pointer;
-        }
-
-        .csb-link-button {
-          border-color: transparent;
-          color: #5c35d5;
-        }
-
-        .csb-group__footer {
-          padding: 10px 14px;
-          border-top: 1px solid #ededed;
-          background: #fafafa;
-        }
-
-        .csb-row {
-          display: grid;
-          grid-template-columns: 54px minmax(0, 1fr) auto;
-          gap: 12px;
-          align-items: center;
-          padding: 13px 14px;
-          border-bottom: 1px solid #ededed;
-        }
-
-        .csb-row:last-of-type {
-          border-bottom: 0;
-        }
-
-        .csb-row--selected {
-          background: #fdfcff;
-        }
-
-        .csb-row__content {
+          padding: 12px 14px;
           min-width: 0;
         }
-
-        .csb-row__title {
-          font-size: 12.5px;
+        .csb-components-table-head {
+          color: var(--p-color-text-secondary, #616161);
+          background: var(--p-color-bg-surface-secondary, #f6f6f7);
+          font-size: 12px;
           font-weight: 600;
-          line-height: 1.4;
-          margin-bottom: 5px;
+          border-bottom: 1px solid var(--p-color-border-secondary, #e3e3e3);
         }
-
-        .csb-thumb {
-          object-fit: contain;
-          border: 1px solid #ededed;
-          border-radius: 8px;
-          background: white;
-        }
-
-        .csb-thumb--empty {
-          display: grid;
-          place-items: center;
-          color: #999;
-          background: #f7f7f7;
-        }
-
-        .csb-meta {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 5px;
-          margin-bottom: 4px;
-        }
-
-        .csb-chip {
-          background: #f2f2f2;
-          color: #616161;
-          padding: 2px 7px;
-          border-radius: 999px;
-          font-size: 10px;
-        }
-
-        .csb-chip--success {
-          background: #eaf8ee;
-          color: #26733e;
-        }
-
-        .csb-small {
-          font-size: 10.5px;
-          color: #616161;
-        }
-
-        .csb-radio {
-          margin-top: 7px;
-          display: flex;
-          gap: 6px;
-          align-items: center;
-          font-size: 10.5px;
-          color: #4a4a4a;
-        }
-
-        .csb-side {
-          position: sticky;
-          top: 16px;
-        }
-
-        .csb-preview {
-          overflow: hidden;
-        }
-
-        .csb-preview__header {
-          padding: 14px;
-          border-bottom: 1px solid #ededed;
+        .csb-components-row {
+          border-bottom: 1px solid var(--p-color-border-secondary, #e3e3e3);
           font-size: 13px;
-          font-weight: 650;
         }
-
-        .csb-preview__body {
-          padding: 14px;
+        .csb-components-row:last-child {
+          border-bottom: none;
         }
-
-        .csb-select {
-          width: 100%;
-          min-height: 37px;
-          padding: 7px 9px;
-          border: 1px solid #c9c9c9;
-          border-radius: 8px;
-          margin-bottom: 14px;
-          font: inherit;
-          font-size: 11px;
+        .csb-components-row > div {
+          min-width: 0;
         }
-
-        .csb-preview-product {
-          display: grid;
-          grid-template-columns: 64px minmax(0, 1fr);
-          gap: 11px;
-          align-items: center;
-          padding-bottom: 13px;
-          margin-bottom: 8px;
-          border-bottom: 1px solid #ededed;
-        }
-
-        .csb-preview-product__title {
-          font-size: 12px;
-          font-weight: 650;
-          line-height: 1.4;
-        }
-
-        .csb-preview-component {
-          display: grid;
-          grid-template-columns: 40px minmax(0, 1fr);
-          gap: 9px;
-          align-items: center;
-          padding: 8px 0;
-          border-bottom: 1px solid #f0f0f0;
-        }
-
-        .csb-preview-component__title {
-          font-size: 10.5px;
-          line-height: 1.4;
-        }
-
-        .csb-price {
-          margin-top: 13px;
-          padding: 13px;
-          background: #fafafa;
-          border: 1px solid #e3e3e3;
-          border-radius: 10px;
-        }
-
-        .csb-price__label {
-          font-size: 10.5px;
-          color: #616161;
-        }
-
-        .csb-price__value {
-          font-size: 21px;
-          font-weight: 700;
-          margin-top: 3px;
-        }
-
-        .csb-empty {
-          padding: 28px 14px;
-          color: #616161;
-          text-align: center;
-          font-size: 12px;
-        }
-
-        .csb-footer {
+        .csb-components-product {
           display: flex;
-          justify-content: flex-end;
-          gap: 10px;
-          padding-top: 16px;
-        }
-
-        .csb-next {
-          display: inline-flex;
           align-items: center;
-          min-height: 36px;
-          padding: 7px 13px;
-          background: #303030;
-          border-radius: 8px;
-          color: white;
-          text-decoration: none;
+          gap: 10px;
+          min-width: 0;
+        }
+        .csb-components-product-name {
+          min-width: 0;
+          overflow-wrap: anywhere;
+        }
+        .csb-components-cell--stock,
+        .csb-components-cell--price {
+          text-align: right;
+          font-variant-numeric: tabular-nums;
+          white-space: nowrap;
+        }
+        .csb-components-table-head > span:nth-child(2),
+        .csb-components-table-head > span:nth-child(3) {
+          text-align: right;
+        }
+        .csb-components-cell--use {
+          display: flex;
+          align-items: center;
+          justify-content: flex-start;
+        }
+        .csb-components-detail-secondary {
+          color: var(--p-color-text-secondary, #616161);
           font-size: 12px;
-          font-weight: 600;
+          margin-top: 3px;
+          overflow-wrap: anywhere;
         }
+        .csb-components-mobile-label { display: none; }
 
-        @media (max-width: 1000px) {
-          .csb-layout {
-            grid-template-columns: 1fr;
+        @container (max-width: 850px) {
+          .csb-components-table-head { display: none; }
+          .csb-components-row {
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+            grid-template-areas:
+              "product product product"
+              "stock price use"
+              "detail detail detail";
+            column-gap: 12px;
+            row-gap: 10px;
           }
-
-          .csb-side {
-            position: static;
+          .csb-components-cell--product { grid-area: product; }
+          .csb-components-cell--stock {
+            grid-area: stock;
+            text-align: left;
           }
-        }
-
-        @media (max-width: 600px) {
-          .csb-heading {
-            flex-direction: column;
+          .csb-components-cell--price {
+            grid-area: price;
+            text-align: left;
           }
-
-          .csb-row {
-            grid-template-columns: 44px minmax(0, 1fr);
+          .csb-components-cell--detail { grid-area: detail; }
+          .csb-components-cell--use {
+            grid-area: use;
+            justify-content: flex-end;
           }
-
-          .csb-row > s-checkbox {
-            grid-column: 2;
+          .csb-components-mobile-label {
+            display: block;
+            color: var(--p-color-text-secondary, #616161);
+            font-size: 11px;
+            margin-bottom: 3px;
           }
         }
       `}</style>
 
-      <div className="csb-page">
-        <div className="csb-heading">
-          <div>
-            <h1 className="csb-title">
-              Componentes
-            </h1>
+        <s-section>
 
-            <p className="csb-description">
-              Define qué productos pueden utilizarse en los bundles PC + Monitor.
-            </p>
-          </div>
+          <s-paragraph>
+            Define qué productos pueden utilizarse en los Bundles PC + Monitor.
+          </s-paragraph>
 
-          <fetcher.Form method="post">
+          <fetcher.Form
+            slot="primary-action"
+            method="post"
+          >
             <input
               type="hidden"
               name="selectedMonitorIds"
@@ -1263,237 +982,222 @@ export default function Components() {
               Guardar componentes
             </s-button>
           </fetcher.Form>
-        </div>
 
-        <div className="csb-layout">
-          <div className="csb-main">
+        </s-section>
 
-            {/* MONITORES */}
+        <s-query-container>
 
-            <div className="csb-group">
-              <div className="csb-group__header">
-                <div>
-                  <div className="csb-group__title">
-                    1. Monitores autorizados
+          <s-grid
+            gridTemplateColumns="@container (inline-size > 1000px) minmax(0, 1fr) 360px, 1fr"
+            gap="base"
+          >
 
-                    <span className="csb-count">
-                      {
-                        state.selectedMonitors.length
-                      }{" "}
-                      seleccionados
-                    </span>
-                  </div>
+            <s-stack gap="base">
 
-                  <div className="csb-group__description">
-                    La app utilizará el monitor compatible de menor precio.
-                  </div>
-                </div>
-
-                {orderedMonitors.length > 2 && (
-                  <button
-                    type="button"
-                    className="csb-link-button"
-                    onClick={() =>
-                      setShowAllMonitors(
-                        (value) =>
-                          !value,
-                      )
-                    }
-                  >
-                    {showAllMonitors
-                      ? "Ver menos"
-                      : `Ver más (${orderedMonitors.length - 2})`}
-                  </button>
-                )}
-              </div>
-
-              {visibleMonitors.map(
-                renderMonitor,
-              )}
-
-              {orderedMonitors.length > 2 && (
-                <div className="csb-group__footer">
-                  <button
-                    type="button"
-                    className="csb-outline-button"
-                    onClick={() =>
-                      setShowAllMonitors(
-                        (value) =>
-                          !value,
-                      )
-                    }
-                  >
-                    {showAllMonitors
-                      ? "Mostrar menos"
-                      : "Ver todos los monitores"}
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* TECLADO */}
-
-            <div className="csb-group">
-              <div className="csb-group__header">
-                <div>
-                  <div className="csb-group__title">
-                    2. Teclado / Mouse
-
-                    <span className="csb-count">
-                      {
-                        state
-                          .selectedKeyboardProducts
-                          .length
-                      }{" "}
-                      seleccionados
-                    </span>
-                  </div>
-
-                  <div className="csb-group__description">
-                    El producto principal se utiliza primero. Los demás funcionan como respaldo.
-                  </div>
-                </div>
-
-                {orderedKeyboards.length > 2 && (
-                  <button
-                    type="button"
-                    className="csb-link-button"
-                    onClick={() =>
-                      setShowAllKeyboards(
-                        (value) =>
-                          !value,
-                      )
-                    }
-                  >
-                    {showAllKeyboards
-                      ? "Ver menos"
-                      : `Ver más (${orderedKeyboards.length - 2})`}
-                  </button>
-                )}
-              </div>
-
-              {visibleKeyboards.map(
-                renderKeyboard,
-              )}
-
-              {orderedKeyboards.length > 2 && (
-                <div className="csb-group__footer">
-                  <button
-                    type="button"
-                    className="csb-outline-button"
-                    onClick={() =>
-                      setShowAllKeyboards(
-                        (value) =>
-                          !value,
-                      )
-                    }
-                  >
-                    {showAllKeyboards
-                      ? "Mostrar menos"
-                      : "Ver todos los teclado/mouse"}
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* WIFI */}
-
-            <div className="csb-group">
-              <div className="csb-group__header">
-                <div>
-                  <div className="csb-group__title">
-                    3. Adaptadores Wi-Fi
-
-                    <span className="csb-count">
-                      {
-                        state
-                          .selectedWifiProducts
-                          .length
-                      }{" "}
-                      seleccionados
-                    </span>
-                  </div>
-
-                  <div className="csb-group__description">
-                    Solo se agregan cuando Wi-Fi integrado = No.
-                  </div>
-                </div>
-
-                {orderedWifi.length > 2 && (
-                  <button
-                    type="button"
-                    className="csb-link-button"
-                    onClick={() =>
-                      setShowAllWifi(
-                        (value) =>
-                          !value,
-                      )
-                    }
-                  >
-                    {showAllWifi
-                      ? "Ver menos"
-                      : `Ver más (${orderedWifi.length - 2})`}
-                  </button>
-                )}
-              </div>
-
-              {visibleWifi.map(
-                renderWifi,
-              )}
-
-              {orderedWifi.length > 2 && (
-                <div className="csb-group__footer">
-                  <button
-                    type="button"
-                    className="csb-outline-button"
-                    onClick={() =>
-                      setShowAllWifi(
-                        (value) =>
-                          !value,
-                      )
-                    }
-                  >
-                    {showAllWifi
-                      ? "Mostrar menos"
-                      : "Ver todos los adaptadores Wi-Fi"}
-                  </button>
-                </div>
-              )}
-            </div>
-
-            <div className="csb-footer">
-              <Link
-                className="csb-next"
-                to="/app/rules"
+              <s-section
+                heading="1. Monitores autorizados"
+                padding="none"
               >
-                Siguiente: Reglas y cálculo →
-              </Link>
-            </div>
-          </div>
 
-          {/* PREVIEW */}
+                <s-badge
+                  slot="accessory"
+                  tone="info"
+                >
+                  {
+                    state
+                      .selectedMonitors
+                      .length
+                  }{" "}
+                  seleccionados
+                </s-badge>
 
-          <aside className="csb-side">
-            <div className="csb-preview">
-              <div className="csb-preview__header">
-                Vista previa
-              </div>
+                <s-box padding="small">
+
+                  <s-paragraph>
+                    La app utilizará el monitor compatible de menor precio.
+                  </s-paragraph>
+
+                </s-box>
+
+                <div className="csb-components-table" role="table" aria-label="Monitores autorizados">
+                  <div role="rowgroup">{renderComponentHeader()}</div>
+                  <div role="rowgroup">
+                    {visibleMonitors.map(renderMonitor)}
+                  </div>
+                </div>
+
+                {orderedMonitors.length >
+                  2 && (
+                  <s-box padding="small">
+
+                    <s-button
+                      variant="tertiary"
+                      onClick={() =>
+                        setShowAllMonitors(
+                          (
+                            value,
+                          ) =>
+                            !value,
+                        )
+                      }
+                    >
+                      {showAllMonitors
+                        ? "Mostrar menos"
+                        : `Ver todos los monitores (${orderedMonitors.length})`}
+                    </s-button>
+
+                  </s-box>
+                )}
+
+              </s-section>
+
+              <s-section
+                heading="2. Teclado / Mouse"
+                padding="none"
+              >
+
+                <s-badge
+                  slot="accessory"
+                  tone="info"
+                >
+                  {
+                    state
+                      .selectedKeyboardProducts
+                      .length
+                  }{" "}
+                  seleccionados
+                </s-badge>
+
+                <s-box padding="small">
+
+                  <s-paragraph>
+                    El producto principal se utiliza primero. Los demás funcionan como respaldo.
+                  </s-paragraph>
+
+                </s-box>
+
+                <div className="csb-components-table" role="table" aria-label="Teclado y Mouse">
+                  <div role="rowgroup">{renderComponentHeader()}</div>
+                  <div role="rowgroup">
+                    {visibleKeyboards.map(renderKeyboard)}
+                  </div>
+                </div>
+
+                {orderedKeyboards.length >
+                  2 && (
+                  <s-box padding="small">
+
+                    <s-button
+                      variant="tertiary"
+                      onClick={() =>
+                        setShowAllKeyboards(
+                          (
+                            value,
+                          ) =>
+                            !value,
+                        )
+                      }
+                    >
+                      {showAllKeyboards
+                        ? "Mostrar menos"
+                        : `Ver todos los teclado/mouse (${orderedKeyboards.length})`}
+                    </s-button>
+
+                  </s-box>
+                )}
+
+              </s-section>
+
+              <s-section
+                heading="3. Adaptadores Wi-Fi"
+                padding="none"
+              >
+
+                <s-badge
+                  slot="accessory"
+                  tone="info"
+                >
+                  {
+                    state
+                      .selectedWifiProducts
+                      .length
+                  }{" "}
+                  seleccionados
+                </s-badge>
+
+                <s-box padding="small">
+
+                  <s-paragraph>
+                    Solo se agregan cuando Wi-Fi integrado = No.
+                  </s-paragraph>
+
+                </s-box>
+
+                <div className="csb-components-table" role="table" aria-label="Adaptadores Wi-Fi">
+                  <div role="rowgroup">{renderComponentHeader()}</div>
+                  <div role="rowgroup">
+                    {visibleWifi.map(renderWifi)}
+                  </div>
+                </div>
+
+                {orderedWifi.length >
+                  2 && (
+                  <s-box padding="small">
+
+                    <s-button
+                      variant="tertiary"
+                      onClick={() =>
+                        setShowAllWifi(
+                          (
+                            value,
+                          ) =>
+                            !value,
+                        )
+                      }
+                    >
+                      {showAllWifi
+                        ? "Mostrar menos"
+                        : `Ver todos los adaptadores Wi-Fi (${orderedWifi.length})`}
+                    </s-button>
+
+                  </s-box>
+                )}
+
+              </s-section>
+
+              <s-section>
+
+                <s-button
+                  variant="primary"
+                  href="/app/rules"
+                >
+                  Siguiente: Reglas y cálculo
+                </s-button>
+
+              </s-section>
+
+            </s-stack>
+
+            <s-section heading="Vista previa">
 
               {preview ? (
-                <div className="csb-preview__body">
+                <s-stack gap="base">
 
-                  <select
-                    className="csb-select"
-                    value={preview.id}
+                  <s-select
+                    label="PC de ejemplo"
+                    value={
+                      preview.id
+                    }
                     onChange={(event) =>
                       setPreviewId(
-                        event.target.value,
+                        event.currentTarget
+                          .value,
                       )
                     }
                   >
                     {state.bundleCandidates.map(
                       (candidate) => (
-                        <option
+                        <s-option
                           key={
                             candidate.id
                           }
@@ -1508,39 +1212,48 @@ export default function Components() {
                                 .title,
                             )
                           }
-                        </option>
+                        </s-option>
                       ),
                     )}
-                  </select>
+                  </s-select>
 
-                  <div className="csb-preview-product">
+                  <s-stack
+                    direction="inline"
+                    gap="small"
+                    alignItems="center"
+                  >
+
                     <ProductThumb
                       product={
                         preview.baseProduct
                       }
-                      size={64}
+                      size="base"
                     />
 
-                    <div>
-                      <div className="csb-preview-product__title">
+                    <s-stack gap="small">
+
+                      <s-text>
                         {cleanPcTitle(
                           preview
                             .baseProduct
                             .title,
                         )}
-                      </div>
+                      </s-text>
 
-                      <div className="csb-meta">
-                        <span className="csb-chip">
+                      <s-stack
+                        direction="inline"
+                        gap="small"
+                      >
+                        <s-badge tone="neutral">
                           Stock{" "}
                           {
                             preview
                               .baseProduct
                               .totalInventory
                           }
-                        </span>
+                        </s-badge>
 
-                        <span className="csb-chip">
+                        <s-badge tone="neutral">
                           Wi-Fi{" "}
                           {
                             getProductInfo(
@@ -1548,96 +1261,132 @@ export default function Components() {
                                 .baseProduct,
                             ).wifi
                           }
-                        </span>
-                      </div>
-                    </div>
-                  </div>
+                        </s-badge>
+                      </s-stack>
+
+                    </s-stack>
+
+                  </s-stack>
+
+                  <s-divider />
 
                   {preview.monitor && (
-                    <div className="csb-preview-component">
+                    <s-stack
+                      direction="inline"
+                      gap="small"
+                      alignItems="center"
+                    >
                       <ProductThumb
                         product={
                           preview.monitor
                         }
-                        size={40}
+                        size="small-200"
                       />
 
-                      <div className="csb-preview-component__title">
-                        {cleanMonitorTitle(
-                          preview.monitor.title,
-                        )}
+                      <s-stack gap="small">
+                        <s-text>
+                          {cleanMonitorTitle(
+                            preview
+                              .monitor
+                              .title,
+                          )}
+                        </s-text>
 
-                        <div className="csb-small">
+                        <s-text tone="neutral">
                           {
-                            preview.commonVideoPorts.join(
-                              ", ",
-                            )
+                            preview
+                              .commonVideoPorts
+                              .join(
+                                ", ",
+                              )
                           }
-                        </div>
-                      </div>
-                    </div>
+                        </s-text>
+                      </s-stack>
+                    </s-stack>
                   )}
 
-                  <div className="csb-preview-component">
+                  <s-stack
+                    direction="inline"
+                    gap="small"
+                    alignItems="center"
+                  >
                     <ProductThumb
                       product={
                         preview.keyboardMouse
                       }
-                      size={40}
+                      size="small-200"
                     />
 
-                    <div className="csb-preview-component__title">
+                    <s-text>
                       {
                         preview
                           .keyboardMouse
                           .title
                       }
-                    </div>
-                  </div>
+                    </s-text>
+                  </s-stack>
 
                   {preview.wifiAdapter && (
-                    <div className="csb-preview-component">
+                    <s-stack
+                      direction="inline"
+                      gap="small"
+                      alignItems="center"
+                    >
                       <ProductThumb
                         product={
                           preview.wifiAdapter
                         }
-                        size={40}
+                        size="small-200"
                       />
 
-                      <div className="csb-preview-component__title">
+                      <s-text>
                         {
                           preview
                             .wifiAdapter
                             .title
                         }
-                      </div>
-                    </div>
+                      </s-text>
+                    </s-stack>
                   )}
 
-                  <div className="csb-price">
-                    <div className="csb-price__label">
-                      Suma actual de componentes
-                    </div>
+                  <s-divider />
 
-                    <div className="csb-price__value">
+                  <s-grid
+                    gridTemplateColumns="1fr auto"
+                    gap="small"
+                  >
+                    <s-text tone="neutral">
+                      Suma actual de componentes
+                    </s-text>
+
+                    <s-heading>
                       {formatPrice(
                         getBundlePrice(
                           preview,
                         ),
                         data.currencyCode,
                       )}
-                    </div>
-                  </div>
-                </div>
+                    </s-heading>
+                  </s-grid>
+
+                </s-stack>
               ) : (
-                <div className="csb-empty">
-                  No hay bundles disponibles con la configuración actual.
-                </div>
+                <s-banner
+                  tone="info"
+                  heading="Sin vista previa"
+                >
+                  No hay Bundles disponibles con la configuración actual.
+                </s-banner>
               )}
-            </div>
-          </aside>
-        </div>
-      </div>
+
+            </s-section>
+
+          </s-grid>
+
+        </s-query-container>
+
+      </s-stack>
+
     </s-page>
   );
 }

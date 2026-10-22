@@ -277,11 +277,34 @@ export const DEFAULT_BUNDLE_TEMPLATES:
           "PC de Escritorio",
         ),
 
-      monitorRule:
-        productTypeRule(
-          "pc-new-monitor-type",
-          "Monitor",
-        ),
+      monitorRule: {
+        match:
+          "all",
+
+        conditions: [
+          productTypeCondition(
+            "pc-new-monitor-type",
+            "Monitor",
+          ),
+
+          {
+            id:
+              "pc-new-monitor-condition",
+
+            source:
+              "title",
+
+            operator:
+              "contains",
+
+            value:
+              "Nuevo",
+
+            metafield:
+              null,
+          },
+        ],
+      },
 
       keyboardMouseRule:
         productTypeRule(
@@ -363,11 +386,34 @@ export const DEFAULT_BUNDLE_TEMPLATES:
           "PC de Escritorio",
         ),
 
-      monitorRule:
-        productTypeRule(
-          "pc-ref-monitor-type",
-          "Monitor reacondicionado",
-        ),
+      monitorRule: {
+        match:
+          "all",
+
+        conditions: [
+          productTypeCondition(
+            "pc-ref-monitor-type",
+            "Monitor",
+          ),
+
+          {
+            id:
+              "pc-ref-monitor-condition",
+
+            source:
+              "title",
+
+            operator:
+              "contains",
+
+            value:
+              "Reacondicionado",
+
+            metafield:
+              null,
+          },
+        ],
+      },
 
       keyboardMouseRule:
         productTypeRule(
@@ -415,7 +461,7 @@ export const DEFAULT_BUNDLE_TEMPLATES:
         "Combo Reacondicionado",
 
       monitorSuffix:
-        "Reacondicionado",
+        "",
 
       skuPrefix:
         "BND-R-",
