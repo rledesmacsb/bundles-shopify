@@ -162,9 +162,6 @@ export function buildBundleProductContent(
     question("¿Incluye teclado y mouse?",
       `Sí. El combo incluye ${candidate.keyboardMouse.title}.`),
     question("¿Incluye conectividad Wi-Fi?", wifiAnswer),
-    question("¿Dónde revisar especificaciones, estado y garantía?",
-      "Las características que no se detallan aquí, las condiciones estéticas y las garantías deben verificarse en las fichas y condiciones comerciales de los productos incluidos. No se incluyen accesorios adicionales que no estén indicados."),
-    "<p>Consulta los componentes y su configuración antes de comprar en CSBYTE Chile.</p>",
   ];
 
   return {
