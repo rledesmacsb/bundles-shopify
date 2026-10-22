@@ -70,6 +70,7 @@ import {
 import { buildBundleProductContent } from "../lib/bundle-description";
 import { completeMissingBundleContent } from "../lib/bundle-description.server";
 import { completeMissingBundleCompareAtPrice } from "../lib/bundle-compare-price.server";
+import { addImagesToExistingManagedBundle } from "../lib/bundle-images.server";
 
 /* =========================================================
    LOADER
@@ -291,6 +292,19 @@ export const action =
       const candidateId = String(formData.get("candidateId") ?? "").trim();
       const result = await completeMissingBundleCompareAtPrice(admin, candidateId);
       if (result.success) {
+        invalidateShopBundleCache(session.shop);
+      }
+      return result;
+    }
+
+    /* -----------------------------------------------------
+       ADD COMPONENT IMAGES TO A MANAGED BUNDLE WITH NO GALLERY
+       Also available for products already ACTIVE and published.
+    ----------------------------------------------------- */
+    if (intent === "complete_images") {
+      const candidateId = String(formData.get("candidateId") ?? "").trim();
+      const result = await addImagesToExistingManagedBundle(admin, candidateId);
+      if (result.success && result.changed) {
         invalidateShopBundleCache(session.shop);
       }
       return result;
@@ -3256,6 +3270,25 @@ export default function Bundles() {
             <s-section heading="Acciones">
 
               <s-stack gap="small">
+
+                {detailMatch.status === "existing_managed" && detailMatch.existingProduct && (
+                  <fetcher.Form method="post">
+                    <input type="hidden" name="intent" value="complete_images" />
+                    <input type="hidden" name="candidateId" value={detailCandidate.id} />
+                    <s-button
+                      variant="secondary"
+                      type="submit"
+                      disabled={working || publishingBusy}
+                    >
+                      Agregar fotos de componentes
+                    </s-button>
+                    <s-text tone="neutral">
+                      Importa las imágenes principales del PC, monitor y accesorios
+                      solo si el Bundle no tiene galería. No modifica los componentes.
+                    </s-text>
+                  </fetcher.Form>
+                )}
+
 
                 {detailMatch.status === "existing_managed" &&
                   detailMatch.existingProduct?.status === "DRAFT" && (
