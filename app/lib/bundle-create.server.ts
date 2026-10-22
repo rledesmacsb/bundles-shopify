@@ -7,6 +7,7 @@ import type {
 } from "./bundle-template-engine";
 
 import { buildBundleProductContent } from "./bundle-description";
+import { addComponentImagesToEmptyBundle } from "./bundle-images.server";
 
 import {
   buildTemplateBundleState,
@@ -2935,6 +2936,26 @@ export async function createDraftBundleFromCandidate(
     };
   }
 
+  // The parent has been verified and tagged as managed. Import original
+  // component photos; do not generate imaginary product images.
+  const gallery = await addComponentImagesToEmptyBundle(
+    admin,
+    parent.id,
+    candidate,
+  );
+
+  if (!gallery.success) {
+    return {
+      success: false,
+      partial: true,
+      productId: parent.id,
+      message:
+        "El Bundle se creó como borrador, pero la galería quedó pendiente: " +
+        gallery.message +
+        " No crees otro borrador: utiliza «Agregar fotos de componentes».",
+    };
+  }
+
   return {
     success:
       true,
@@ -2959,7 +2980,7 @@ export async function createDraftBundleFromCandidate(
       bundleWeight.weightGrams,
 
     message:
-      `Producto de Bundles creado correctamente como borrador: ${candidate.identity.title}.`,
+      `Producto de Bundles creado como borrador: ${candidate.identity.title}. ${gallery.message}`,
   };
 }
 
