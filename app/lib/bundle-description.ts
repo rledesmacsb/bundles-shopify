@@ -1,5 +1,6 @@
 import type { TemplateBundleCandidate } from "./bundle-template-engine";
 import { getTemplateMetafieldValues } from "./bundle-rule-engine";
+import { cleanMonitorTitle, cleanPcTitle } from "./bundle-engine";
 
 /**
  * This is deterministic catalog copy, not AI-generated specifications.
@@ -23,6 +24,31 @@ function shorten(value: string, limit: number): string {
   const lastSpace = prefix.lastIndexOf(" ");
   const safePrefix = lastSpace > limit * 0.6 ? prefix.slice(0, lastSpace) : prefix;
   return safePrefix.trimEnd() + "…";
+}
+
+/**
+ * SEO titles name both products and keep the CSBYTE brand.
+ *
+ * Unlike meta descriptions, title tags must not end in an automatically
+ * inserted ellipsis (e.g. "|…"). Simplify redundant label words first;
+ * if the complete product names are unusually long, retain the names
+ * rather than silently cutting a model in half.
+ */
+export function buildBundleSeoTitle(candidate: TemplateBundleCandidate): string {
+  const pc = cleanPcTitle(candidate.baseProduct.title) ||
+    candidate.baseProduct.title.trim();
+  const monitor = cleanMonitorTitle(candidate.monitor.title) ||
+    candidate.monitor.title.trim();
+
+  const prefix = candidate.template.titlePrefix.replace(/\s+/g, " ").trim() || "Combo";
+  const concisePrefix = prefix.replace(/\bPC\b/gi, "").replace(/\s+/g, " ").trim() || "Combo";
+  const titles = [
+    `${prefix} ${pc} + ${monitor} | CSBYTE`,
+    `${concisePrefix} ${pc} + ${monitor} | CSBYTE`,
+    `${pc} + ${monitor} | CSBYTE`,
+  ].map((value) => value.replace(/\s+/g, " ").trim());
+
+  return titles.find((title) => title.length <= 70) ?? titles[titles.length - 1];
 }
 
 /**
@@ -167,7 +193,7 @@ export function buildBundleProductContent(
   return {
     handle: buildBundleSeoHandle(candidate),
     descriptionHtml: paragraphs.join("\n"),
-    seoTitle: shorten(candidate.identity.title + " | CSBYTE", 70),
+    seoTitle: buildBundleSeoTitle(candidate),
     seoDescription: shorten(
       `Combo ${candidate.baseProduct.title} con monitor ${candidate.monitor.title}, teclado y mouse${candidate.wifiAdapter ? " y adaptador Wi-Fi" : ""}. Revisa componentes y compatibilidad en CSBYTE Chile.`,
       160,
