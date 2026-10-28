@@ -4,6 +4,7 @@ import {
   type ProductNode,
 } from "./bundle-engine";
 import { loadBundleRuntimeSettings } from "./bundle-runtime-settings.server";
+import { auditComponentSkuUniqueness } from "./bundle-sku-guard.server";
 
 type Admin = { graphql: (query: string, options?: any) => Promise<any> };
 
@@ -220,6 +221,7 @@ function verifyComponents(product: ManagedProduct, s: Snapshot) {
 async function unpublishInvalidBundle(
   admin: Admin,
   product: ManagedProduct,
+  unsafeSku = false,
 ): Promise<"unpublished" | "already_safe" | "restored"> {
   const data = await query(admin, String.raw`#graphql
     query CsbyteRecheckBundleBeforeDraft($id: ID!) {
@@ -254,7 +256,22 @@ async function unpublishInvalidBundle(
   if (!snapshot) {
     throw new Error("No se puede verificar la composición original: metadatos inválidos.");
   }
-  if (!verifyComponents(current, snapshot).compositionInvalid) return "restored";
+  const composition = verifyComponents(current, snapshot);
+  let duplicated = false;
+  if (unsafeSku && !composition.compositionInvalid) {
+    const source = current.bundleComponents.nodes
+      .filter((component) => component.componentProduct &&
+        component.componentVariants.nodes.length === 1)
+      .map((component) => ({
+        productId: component.componentProduct!.id,
+        variantId: component.componentVariants.nodes[0].id,
+        sku: component.componentVariants.nodes[0].sku,
+        label: component.componentProduct!.title,
+      }));
+    const issues = await auditComponentSkuUniqueness(admin, source);
+    duplicated = issues.some((issue) => issue.code === "duplicate");
+  }
+  if (!composition.compositionInvalid && !duplicated) return "restored";
 
   const updated = await query(admin, String.raw`#graphql
     mutation CsbyteDisableInvalidBundle($input: ProductUpdateInput!) {
@@ -385,6 +402,36 @@ export async function runManagedBundleSync(
     bundles = products;
     report.priceRuleConfigured = runtime.priceConfig.configured;
 
+    // One shared batched lookup per distinct component, not a separate
+    // Shopify request for every Bundle row. Important for larger catalogs.
+    const uniqueSkuVariants = new Map<string, {
+      productId: string; variantId: string; sku: string | null; label: string;
+    }>();
+    for (const product of bundles) {
+      for (const component of product.bundleComponents.nodes) {
+        const node = component.componentVariants.nodes[0];
+        if (!node || !component.componentProduct) continue;
+        const key = node.id;
+        if (!uniqueSkuVariants.has(key)) {
+          uniqueSkuVariants.set(key, {
+            productId: component.componentProduct.id,
+            variantId: node.id,
+            sku: node.sku,
+            label: component.componentProduct.title.split(" (")[0],
+          });
+        }
+      }
+    }
+    const skuFindings = await auditComponentSkuUniqueness(
+      admin, [...uniqueSkuVariants.values()],
+    );
+    const skuIssuesByVariant = new Map<string, typeof skuFindings>();
+    for (const issue of skuFindings) {
+      const issues = skuIssuesByVariant.get(issue.variantId) ?? [];
+      issues.push(issue);
+      skuIssuesByVariant.set(issue.variantId, issues);
+    }
+
     for (const product of bundles) {
       const parent = product.variants.nodes[0];
       const row: BundleSyncRow = {
@@ -448,6 +495,34 @@ export async function runManagedBundleSync(
         if (problems.length) {
           const name = c.componentProduct.title.split(" (")[0].trim();
           row.issues.push(`${roles[i]} — ${name}: ${problems.join(" y ")}.`);
+        }
+      }
+      const conflicts = source.flatMap((component) =>
+        component?.componentVariants.nodes[0]
+          ? skuIssuesByVariant.get(component.componentVariants.nodes[0].id) ?? []
+          : [],
+      );
+      const seenIssues = new Set<string>();
+      for (const issue of conflicts) {
+        if (!seenIssues.has(issue.message)) row.issues.push(issue.message);
+        seenIssues.add(issue.message);
+      }
+      if (conflicts.some((issue) => issue.code === "duplicate") &&
+          options.apply && ["ACTIVE", "UNLISTED"].includes(row.status)) {
+        try {
+          const result = await unpublishInvalidBundle(admin, product, true);
+          if (result === "unpublished") {
+            row.status = "DRAFT";
+            row.autoUnpublished = true;
+            row.issues.push("Despublicado por SKU duplicado: revisa los productos antes de publicar.");
+            report.unpublished++;
+          } else if (result === "restored") {
+            row.issues.push("El SKU fue corregido durante la revisión. Ejecuta nuevamente el control.");
+          }
+        } catch (error) {
+          row.issues.push("No fue posible despublicar tras detectar SKU duplicado: " +
+            (error instanceof Error ? error.message : "Error."));
+          report.errors.push(`${product.title}: no se pudo bloquear el SKU duplicado.`);
         }
       }
       if (row.issues.length) continue;
