@@ -36,6 +36,9 @@ async function readPreviousReport(admin: Admin): Promise<BundleSyncReport | null
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
+  // Fetch the last verified report without blocking on a full catalog scan.
+  // The costly scan is explicitly requested or run by daily Cron.
+  const previousReportPromise = readPreviousReport(admin);
   // This shop-specific subscription is owned by CSBYTE Bundles itself.
   // Shopify's app-specific TOML configuration is intentionally unchanged.
   let deleteWebhookReady = false;
@@ -84,11 +87,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       ? error.message
       : "No fue posible registrar el webhook.";
   }
-  const [report, lastReport] = await Promise.all([
-    runManagedBundleSync(admin, { apply: false }),
-    readPreviousReport(admin),
-  ]);
-  return { report, lastReport, deleteWebhookReady, deleteWebhookError };
+  const lastReport = await previousReportPromise;
+  return { lastReport, deleteWebhookReady, deleteWebhookError };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -109,7 +109,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 export default function BundleSync() {
   const initial = useLoaderData<typeof loader>();
   const fetcher = useFetcher<typeof action>();
-  const report = fetcher.data?.report ?? initial.report;
+  const report = fetcher.data?.report ?? initial.lastReport;
   const running = fetcher.state !== "idle";
   const last = fetcher.data?.report && !fetcher.data.report.errors.length
     ? fetcher.data.report : initial.lastReport;
@@ -136,13 +136,13 @@ export default function BundleSync() {
               afectados se pasan a borrador al ejecutar la sincronización.
               No se publican automáticamente después.
             </s-paragraph>
-            {!report.priceRuleConfigured && (
+            {report && !report.priceRuleConfigured && (
               <s-banner heading="Falta una regla de precio" tone="warning">
                 Configura el descuento en «Reglas y cálculo» antes de automatizar precios.
                 Sin esa regla, la supervisión no modifica precios existentes.
               </s-banner>
             )}
-            {report.errors.length > 0 && (
+            {report && report.errors.length > 0 && (
               <s-banner heading="Revisión incompleta" tone="critical">
                 {report.errors.join(" · ")}
               </s-banner>
@@ -168,19 +168,22 @@ export default function BundleSync() {
 
         <s-section heading="Estado de los Bundles">
           <s-stack gap="base">
-            <s-paragraph>
-              Revisados: {report.total} · Con observaciones: {report.requiresAttention} ·
-              Fichas sincronizadas en esta revisión: {report.updated} ·
-              Despublicados por seguridad: {report.unpublished ?? 0}.
-            </s-paragraph>
-            {report.rows.map((item) => (
-              <div
-                key={item.id}
-                style={{
-                  padding: "14px 0",
-                  borderTop: "1px solid var(--p-color-border, #dedede)",
-                }}
-              >
+            {!report && (
+              <s-paragraph>
+                No hay una revisión guardada. Selecciona «Revisar y sincronizar ahora»
+                para comprobar los componentes.
+              </s-paragraph>
+            )}
+            {report && (
+              <s-paragraph>
+                Revisados: {report.total} · Con observaciones: {report.requiresAttention} ·
+                Fichas sincronizadas: {report.updated} ·
+                Despublicados por seguridad: {report.unpublished ?? 0}.
+              </s-paragraph>
+            )}
+            <div className="csbyte-sync-grid">
+            {report?.rows.map((item) => (
+              <div key={item.id} className="csbyte-sync-card">
                 <s-stack gap="small">
                   <s-text><strong>{item.title}</strong></s-text>
                   <s-text tone="neutral">
@@ -214,11 +217,31 @@ export default function BundleSync() {
                 </s-stack>
               </div>
             ))}
-            {report.rows.length === 0 && !report.errors.length && (
+            </div>
+            {report && report.rows.length === 0 && !report.errors.length && (
               <s-paragraph>No se encontraron Bundles administrados por la app.</s-paragraph>
             )}
           </s-stack>
         </s-section>
+        <style>{`
+          .csbyte-sync-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+            width: 100%;
+          }
+          .csbyte-sync-card {
+            min-width: 0;
+            padding: 14px;
+            border: 1px solid var(--p-color-border, #dedede);
+            border-radius: 8px;
+            overflow-wrap: anywhere;
+          }
+          @media (max-width: 740px) {
+            .csbyte-sync-grid { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+            .csbyte-sync-card { padding: 12px; }
+          }
+        `}</style>
       </s-stack>
     </s-page>
   );
