@@ -60,6 +60,7 @@ export type BundleSyncRow = {
   expectedPrice: number | null;
   issues: string[];
   updated: boolean;
+  updatedDetail?: "price" | "compare_at" | "both";
 };
 
 export type BundleSyncReport = {
@@ -341,18 +342,25 @@ export async function runManagedBundleSync(
       const refs = [snapshot.base, snapshot.monitor, snapshot.keyboardMouse,
         ...(snapshot.wifiAdapter ? [snapshot.wifiAdapter] : [])];
       const source = refs.map(ref => byVariant.get(ref.variantId));
-      for (const c of source) {
+      const roles = ["PC", "Monitor", "Teclado y mouse", "Adaptador Wi-Fi"];
+      for (let i = 0; i < source.length; i++) {
+        const c = source[i];
         if (!c?.componentProduct || !c.componentVariants.nodes[0]) continue;
         const variant = c.componentVariants.nodes[0];
+        const problems: string[] = [];
         if (!["ACTIVE", "UNLISTED"].includes(c.componentProduct.status)) {
-          row.issues.push(`${c.componentProduct.title}: no está publicado.`);
+          problems.push("no publicado");
         }
         if (variant.inventoryQuantity == null || variant.inventoryQuantity <= 0 ||
             c.componentProduct.totalInventory <= 0) {
-          row.issues.push(`${c.componentProduct.title}: sin disponibilidad verificable.`);
+          problems.push("sin stock verificable");
         }
         if (asPrice(variant.price) == null) {
-          row.issues.push(`${c.componentProduct.title}: precio no válido.`);
+          problems.push("precio no válido");
+        }
+        if (problems.length) {
+          const name = c.componentProduct.title.split(" (")[0].trim();
+          row.issues.push(`${roles[i]} — ${name}: ${problems.join(" y ")}.`);
         }
       }
       if (row.issues.length) continue;
@@ -391,7 +399,14 @@ export async function runManagedBundleSync(
       const previousCompare = parent.compareAtPrice == null ? null : Number(parent.compareAtPrice);
       if (row.price === wanted && previousCompare === wantedCompare) continue;
 
-      row.issues.push("El precio necesita sincronización.");
+      const salePriceChanged = row.price !== wanted;
+      const compareChanged = previousCompare !== wantedCompare;
+      row.updatedDetail = salePriceChanged && compareChanged
+        ? "both"
+        : salePriceChanged ? "price" : "compare_at";
+      row.issues.push(salePriceChanged
+        ? "El precio de venta necesita sincronización."
+        : "El precio de comparación necesita sincronización.");
       if (!options.apply) continue;
 
       try {
