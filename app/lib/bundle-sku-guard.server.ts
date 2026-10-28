@@ -63,7 +63,7 @@ export async function auditComponentSkuUniqueness(
     ) {
       nodes { id sku product { id title } }
       pageInfo { hasNextPage }
-    }`).join("\\n");
+    }`).join("\n");
     const operation = `#graphql
       query CsbyteValidateUniqueSkuBatch(${params}) {
         ${selection}
