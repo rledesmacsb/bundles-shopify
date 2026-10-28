@@ -97,7 +97,7 @@ function createFixture(options = {}) {
 test("recalculates a Bundle when monitor price rises by 10000 CLP",async()=>{
   const f=createFixture();
   const report=await f.run(true);
-  assert.deepEqual(report.errors,[]);
+  assert.equal(report.errors.length,0);
   assert.equal(report.updated,1);
   assert.equal(f.updates.length,1);
   assert.equal(Number(f.updates[0].price),165000);
