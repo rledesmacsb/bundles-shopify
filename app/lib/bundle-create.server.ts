@@ -8,6 +8,7 @@ import type {
 
 import { buildBundleProductContent } from "./bundle-description";
 import { addComponentImagesToEmptyBundle } from "./bundle-images.server";
+import { auditComponentSkuUniqueness } from "./bundle-sku-guard.server";
 
 import {
   buildTemplateBundleState,
@@ -2479,6 +2480,30 @@ export async function createDraftBundleFromCandidate(
     components.push(
       result.component,
     );
+  }
+
+  // Shopify permits duplicate SKUs. A selected variant must be the only
+  // exact match in the store before any product creation is attempted.
+  const duplicateSkuIssues = await auditComponentSkuUniqueness(
+    admin,
+    components.map((component) => ({
+      productId: component.product.id,
+      variantId: component.variant.id,
+      sku: component.variant.sku,
+      label: ({
+        pc: "PC",
+        monitor: "Monitor",
+        keyboard_mouse: "Teclado y mouse",
+        wifi_adapter: "Adaptador Wi-Fi",
+      } as Record<ComponentRole, string>)[component.role],
+    })),
+  );
+  if (duplicateSkuIssues.length) {
+    return {
+      success: false,
+      message: "No se creó el Bundle: " +
+        duplicateSkuIssues.map((issue) => issue.message).join(" · "),
+    };
   }
 
   const baseComponent =
