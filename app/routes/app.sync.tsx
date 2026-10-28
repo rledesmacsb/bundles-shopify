@@ -5,7 +5,7 @@ import type {
 } from "react-router";
 import { useFetcher, useLoaderData, useRouteError } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
-import { authenticate } from "../shopify.server";
+import { authenticate, registerWebhooks } from "../shopify.server";
 import {
   runManagedBundleSync,
   type BundleSyncReport,
@@ -35,12 +35,29 @@ async function readPreviousReport(admin: Admin): Promise<BundleSyncReport | null
 }
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { admin } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
+  // This shop-specific subscription is owned by CSBYTE Bundles itself.
+  // Shopify's app-specific TOML configuration is intentionally unchanged.
+  let deleteWebhookReady = false;
+  let deleteWebhookError = "";
+  try {
+    const registration = await registerWebhooks({ session });
+    const result = (registration as Record<string, Array<{ success: boolean }>>).PRODUCTS_DELETE;
+    deleteWebhookReady = Array.isArray(result) &&
+      result.length > 0 && result.every((item) => item.success);
+    if (!deleteWebhookReady) {
+      deleteWebhookError = "Shopify no confirmó el webhook de eliminación. Vuelve a abrir esta sección.";
+    }
+  } catch (error) {
+    deleteWebhookError = error instanceof Error
+      ? error.message
+      : "No fue posible registrar el webhook.";
+  }
   const [report, lastReport] = await Promise.all([
     runManagedBundleSync(admin, { apply: false }),
     readPreviousReport(admin),
   ]);
-  return { report, lastReport };
+  return { report, lastReport, deleteWebhookReady, deleteWebhookError };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -71,6 +88,15 @@ export default function BundleSync() {
       <s-stack gap="base">
         <s-section heading="Supervisión de Bundles">
           <s-stack gap="small">
+            {initial.deleteWebhookReady ? (
+              <s-badge tone="success">Protección por eliminación conectada</s-badge>
+            ) : (
+              <s-banner heading="Activación del webhook pendiente" tone="warning">
+                {initial.deleteWebhookError ||
+                  "Shopify todavía no confirmó la protección inmediata."}
+                La revisión manual y diaria sigue disponible.
+              </s-banner>
+            )}
             <s-paragraph>
               Compara los componentes reales del Bundle con su configuración guardada.
               Detecta cambios de precio, stock, publicación y composición.
