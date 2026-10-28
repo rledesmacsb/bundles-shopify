@@ -11,6 +11,7 @@ import {
   BUNDLE_MANAGED_BY_VALUE,
 } from "./bundle-existing.server";
 import { loadBundleReadiness } from "./bundle-readiness.server";
+import { auditComponentSkuUniqueness } from "./bundle-sku-guard.server";
 
 type Admin = {
   graphql: (query: string, options?: any) => Promise<any>;
@@ -110,6 +111,31 @@ export async function validateBundlePublication(
         "Completa los datos de los componentes antes de publicar: " +
         [...readiness.errors, ...readiness.issues.map((i) =>
           i.componentTitle + ": " + i.message)].join(" · "));
+    }
+
+    // Block publication when any selected source SKU exists on more
+    // than one Shopify variant, even if the current Bundle is a draft.
+    const selectedComponents = [
+      { product: candidate.baseProduct, label: "PC" },
+      { product: candidate.monitor, label: "Monitor" },
+      { product: candidate.keyboardMouse, label: "Teclado y mouse" },
+      ...(candidate.wifiAdapter
+        ? [{ product: candidate.wifiAdapter, label: "Adaptador Wi-Fi" }]
+        : []),
+    ];
+    const skuIssues = await auditComponentSkuUniqueness(
+      admin,
+      selectedComponents.map(({ product, label }) => ({
+        productId: product.id,
+        variantId: product.variants.nodes[0]?.id ?? "",
+        sku: product.variants.nodes[0]?.sku,
+        label,
+      })),
+    );
+    if (skuIssues.length) {
+      return failed(candidateId,
+        "No se puede publicar con SKUs duplicados o sin verificar: " +
+        skuIssues.map((issue) => issue.message).join(" · "));
     }
 
     const matches = await loadExistingPcMonitorBundleMatches(admin, [candidate]);
