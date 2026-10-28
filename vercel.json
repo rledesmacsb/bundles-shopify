@@ -6,5 +6,5 @@
       "schedule": "0 8 * * *"
     }
   ],
-  "buildCommand": "npm run test:bundles && npm run build"
+  "buildCommand": "npm run test:bundles && npm run typecheck && npm run build"
 }
