@@ -5,7 +5,7 @@ import type {
 } from "react-router";
 import { useFetcher, useLoaderData, useRouteError } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
-import { authenticate, registerWebhooks } from "../shopify.server";
+import { authenticate, registerWebhooks, unauthenticated } from "../shopify.server";
 import {
   runManagedBundleSync,
   type BundleSyncReport,
@@ -41,7 +41,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   let deleteWebhookReady = false;
   let deleteWebhookError = "";
   try {
-    const registration = await registerWebhooks({ session });
+    const { session: offline } = await unauthenticated.admin(session.shop);
+    const registration = await registerWebhooks({ session: offline });
     const result = (registration as Record<string, Array<{ success: boolean }>>).PRODUCTS_DELETE;
     deleteWebhookReady = Array.isArray(result) &&
       result.length > 0 && result.every((item) => item.success);
