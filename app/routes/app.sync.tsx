@@ -41,13 +41,43 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   let deleteWebhookReady = false;
   let deleteWebhookError = "";
   try {
-    const { session: offline } = await unauthenticated.admin(session.shop);
-    const registration = await registerWebhooks({ session: offline });
-    const result = (registration as Record<string, Array<{ success: boolean }>>).PRODUCTS_DELETE;
-    deleteWebhookReady = Array.isArray(result) &&
-      result.length > 0 && result.every((item) => item.success);
+    const { session: offline, admin: shopAdmin } = await unauthenticated.admin(session.shop);
+    await registerWebhooks({ session: offline });
+    // Verify the installed subscription using CSBYTE's own app credentials;
+    // external Shopify connectors cannot see another app's webhooks.
+    const response = await shopAdmin.graphql(`#graphql
+      query CsbyteVerifyDeleteSubscription {
+        webhookSubscriptions(first: 50, topics: [PRODUCTS_DELETE]) {
+          nodes { id topic uri }
+          pageInfo { hasNextPage }
+        }
+      }
+    `);
+    const payload = await response.json() as {
+      data?: { webhookSubscriptions?: {
+        nodes: Array<{ id: string; topic: string; uri: string }>;
+        pageInfo: { hasNextPage: boolean };
+      } };
+      errors?: Array<{ message: string }>;
+    };
+    if (payload.errors?.length) {
+      throw new Error(payload.errors.map((e) => e.message).join(" · "));
+    }
+    const subscriptions = payload.data?.webhookSubscriptions;
+    deleteWebhookReady = Boolean(subscriptions?.nodes.some((webhook) =>
+      webhook.topic === "PRODUCTS_DELETE" &&
+      (() => {
+        try {
+          const endpoint = new URL(webhook.uri, process.env.SHOPIFY_APP_URL);
+          return endpoint.origin === new URL(process.env.SHOPIFY_APP_URL || request.url).origin &&
+            endpoint.pathname === "/webhooks/products/delete";
+        } catch {
+          return false;
+        }
+      })(),
+    ));
     if (!deleteWebhookReady) {
-      deleteWebhookError = "Shopify no confirmó el webhook de eliminación. Vuelve a abrir esta sección.";
+      deleteWebhookError = "No se encontró la suscripción products/delete de CSBYTE Bundles en Shopify.";
     }
   } catch (error) {
     deleteWebhookError = error instanceof Error
