@@ -121,7 +121,7 @@ export default function BundleSync() {
                 }}
               >
                 <s-stack gap="small">
-                  <s-text type="strong">{item.title}</s-text>
+                  <s-text><strong>{item.title}</strong></s-text>
                   <s-text tone="neutral">
                     {item.status === "ACTIVE" ? "Publicado" : "Borrador"}
                     {" · "}{item.available} disponibles
@@ -137,7 +137,7 @@ export default function BundleSync() {
                     <s-badge tone="success">Sin observaciones</s-badge>
                   )}
                   {item.issues.map((issue, index) => (
-                    <s-text key={index} tone="caution">{issue}</s-text>
+                    <s-text key={index} tone="warning">{issue}</s-text>
                   ))}
                 </s-stack>
               </div>
