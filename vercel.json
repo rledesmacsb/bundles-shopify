@@ -5,5 +5,6 @@
       "path": "/api/bundle-sync",
       "schedule": "0 8 * * *"
     }
-  ]
+  ],
+  "buildCommand": "npm run test:bundles && npm run build"
 }
