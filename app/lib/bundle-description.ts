@@ -17,13 +17,31 @@ function escapeHtml(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
-function shorten(value: string, limit: number): string {
-  const text = value.replace(/\s+/g, " ").trim();
-  if (text.length <= limit) return text;
-  const prefix = text.slice(0, limit - 1);
-  const lastSpace = prefix.lastIndexOf(" ");
-  const safePrefix = lastSpace > limit * 0.6 ? prefix.slice(0, lastSpace) : prefix;
-  return safePrefix.trimEnd() + "…";
+/**
+ * A complete meta description built from verified component names.
+ * Do not slice strings: it can cut a monitor model in half and leave
+ * an unfinished sentence in Shopify's SEO settings.
+ */
+export function buildBundleSeoDescription(candidate: TemplateBundleCandidate): string {
+  const pc = (cleanPcTitle(candidate.baseProduct.title) ||
+    candidate.baseProduct.title).replace(/\s+/g, " ").trim();
+  const monitor = (cleanMonitorTitle(candidate.monitor.title) ||
+    candidate.monitor.title).replace(/\s+/g, " ").trim();
+  const wifi = Boolean(candidate.wifiAdapter);
+  const accessories = wifi ? "teclado, mouse y adaptador Wi-Fi" : "teclado y mouse";
+
+  const candidates = [
+    `Combo PC ${pc} con monitor ${monitor}. Incluye ${accessories}. Revisa sus características en CSBYTE.`,
+    `Combo PC ${pc} + monitor ${monitor}. Incluye ${accessories}. CSBYTE.`,
+    `Combo ${pc} + ${monitor}. Incluye ${accessories}. CSBYTE.`,
+    `Combo PC ${pc} + monitor ${monitor} en CSBYTE.`,
+  ];
+  const description = candidates.find((text) => text.length <= 155);
+
+  // Unusually long names cannot fit together. Fall back to a complete,
+  // truthful category-level sentence rather than a truncated model name.
+  return description ??
+    `Combo de PC y monitor con ${accessories}. Consulta el detalle de los componentes en CSBYTE.`;
 }
 
 /**
@@ -194,10 +212,7 @@ export function buildBundleProductContent(
     handle: buildBundleSeoHandle(candidate),
     descriptionHtml: paragraphs.join("\n"),
     seoTitle: buildBundleSeoTitle(candidate),
-    seoDescription: shorten(
-      `Combo ${candidate.baseProduct.title} con monitor ${candidate.monitor.title}, teclado y mouse${candidate.wifiAdapter ? " y adaptador Wi-Fi" : ""}. Revisa componentes y compatibilidad en CSBYTE Chile.`,
-      160,
-    ),
+    seoDescription: buildBundleSeoDescription(candidate),
     includedProducts,
     connection,
   };
