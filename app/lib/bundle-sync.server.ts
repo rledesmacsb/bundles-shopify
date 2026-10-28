@@ -61,12 +61,14 @@ export type BundleSyncRow = {
   issues: string[];
   updated: boolean;
   updatedDetail?: "price" | "compare_at" | "both";
+  autoUnpublished?: boolean;
 };
 
 export type BundleSyncReport = {
   checkedAt: string;
   total: number;
   updated: number;
+  unpublished: number;
   requiresAttention: number;
   priceRuleConfigured: boolean;
   errors: string[];
@@ -203,7 +205,73 @@ function verifyComponents(product: ManagedProduct, s: Snapshot) {
   if (byVariant.size !== expected.length) {
     issues.push("Se encontraron variantes duplicadas o inesperadas.");
   }
-  return { issues, byVariant };
+  return { issues, byVariant, compositionInvalid: issues.length > 0 };
+}
+
+/**
+ * Never allow a managed, published Bundle to remain for sale when Shopify
+ * has removed or changed one of the original component variant IDs.
+ * Re-fetch immediately before drafting, because another actor may have
+ * corrected the Bundle since the inventory scan.
+ *
+ * Only structural differences trigger this safety action. Stock depletion
+ * and DRAFT component status are reported but do not rewrite publication.
+ */
+async function unpublishInvalidBundle(
+  admin: Admin,
+  product: ManagedProduct,
+): Promise<"unpublished" | "already_safe" | "restored"> {
+  const data = await query(admin, String.raw`#graphql
+    query CsbyteRecheckBundleBeforeDraft($id: ID!) {
+      product(id: $id) {
+        id status
+        managedBy: metafield(namespace: "csbyte_bundle", key: "managed_by") { value }
+        snapshotMeta: metafield(namespace: "csbyte_bundle", key: "component_snapshot") { value }
+        bundleComponents(first: 10) {
+          nodes {
+            quantity
+            componentProduct { id title status totalInventory }
+            componentVariants(first: 2) {
+              nodes { id sku price inventoryQuantity }
+              pageInfo { hasNextPage }
+            }
+          }
+          pageInfo { hasNextPage }
+        }
+      }
+    }
+  `, { id: product.id });
+  const current = data?.product as ManagedProduct | null;
+  if (!current) return "already_safe";
+  if (current.managedBy?.value !== "csbyte-commerce-tools") {
+    throw new Error("No se modificó el Bundle: dejó de estar administrado por la app.");
+  }
+  if (!["ACTIVE", "UNLISTED"].includes(current.status)) return "already_safe";
+  if (current.snapshotMeta?.value !== product.snapshotMeta?.value) {
+    throw new Error("Los metadatos del Bundle cambiaron durante la revisión. Revisa antes de despublicar.");
+  }
+  const snapshot = parseSnapshot(current);
+  if (!snapshot) {
+    throw new Error("No se puede verificar la composición original: metadatos inválidos.");
+  }
+  if (!verifyComponents(current, snapshot).compositionInvalid) return "restored";
+
+  const updated = await query(admin, String.raw`#graphql
+    mutation CsbyteDisableInvalidBundle($input: ProductUpdateInput!) {
+      productUpdate(product: $input) {
+        product { id status }
+        userErrors { field message }
+      }
+    }
+  `, { input: { id: product.id, status: "DRAFT" } });
+  const outcome = updated?.productUpdate;
+  if (outcome?.userErrors?.length) {
+    throw new Error(outcome.userErrors.map((x: any) => x.message).join(" · "));
+  }
+  if (outcome?.product?.id !== product.id || outcome.product.status !== "DRAFT") {
+    throw new Error("Shopify no confirmó el cambio del Bundle a borrador.");
+  }
+  return "unpublished";
 }
 
 async function updatePrice(
@@ -300,6 +368,7 @@ export async function runManagedBundleSync(
     checkedAt: new Date().toISOString(),
     total: 0,
     updated: 0,
+    unpublished: 0,
     requiresAttention: 0,
     priceRuleConfigured: false,
     errors: [],
@@ -336,8 +405,26 @@ export async function runManagedBundleSync(
         row.issues.push("SKU, variante o metadatos internos no verificables.");
         continue;
       }
-      const { issues, byVariant } = verifyComponents(product, snapshot);
+      const { issues, byVariant, compositionInvalid } = verifyComponents(product, snapshot);
       row.issues.push(...issues);
+      if (compositionInvalid && options.apply &&
+          ["ACTIVE", "UNLISTED"].includes(product.status)) {
+        try {
+          const result = await unpublishInvalidBundle(admin, product);
+          if (result === "unpublished") {
+            row.status = "DRAFT";
+            row.autoUnpublished = true;
+            row.issues.push("Despublicado automáticamente: faltan componentes del Bundle original.");
+            report.unpublished++;
+          } else if (result === "restored") {
+            row.issues.push("La composición cambió durante la revisión: vuelve a ejecutar el control.");
+          }
+        } catch (error) {
+          row.issues.push("No fue posible despublicar: " +
+            (error instanceof Error ? error.message : "Error de Shopify."));
+          report.errors.push(`${product.title}: no se pudo proteger el Bundle incompleto.`);
+        }
+      }
 
       const refs = [snapshot.base, snapshot.monitor, snapshot.keyboardMouse,
         ...(snapshot.wifiAdapter ? [snapshot.wifiAdapter] : [])];
