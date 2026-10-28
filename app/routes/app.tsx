@@ -91,6 +91,10 @@ export default function App() {
           Reglas y cálculo
         </s-link>
 
+        <s-link href="/app/sync">
+          Precios y disponibilidad
+        </s-link>
+
         <s-link href="/app/problems">
           Productos con problemas
         </s-link>
