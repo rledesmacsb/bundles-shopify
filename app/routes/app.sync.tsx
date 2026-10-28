@@ -54,7 +54,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     report,
     message: report.errors.length
       ? "La revisión necesita atención."
-      : `Revisados ${report.total} Bundles. Precios actualizados: ${report.updated}.`,
+      : `Revisados ${report.total} Bundles. Fichas sincronizadas: ${report.updated}. Despublicados por seguridad: ${report.unpublished}.`,
   };
 };
 
@@ -75,6 +75,9 @@ export default function BundleSync() {
               Compara los componentes reales del Bundle con su configuración guardada.
               Detecta cambios de precio, stock, publicación y composición.
               Shopify mantiene el inventario nativo de cada componente.
+              Si se elimina o cambia un componente, los Bundles publicados
+              afectados se pasan a borrador al ejecutar la sincronización.
+              No se publican automáticamente después.
             </s-paragraph>
             {!report.priceRuleConfigured && (
               <s-banner heading="Falta una regla de precio" tone="warning">
@@ -110,7 +113,8 @@ export default function BundleSync() {
           <s-stack gap="base">
             <s-paragraph>
               Revisados: {report.total} · Con observaciones: {report.requiresAttention} ·
-              Fichas sincronizadas en esta revisión: {report.updated}.
+              Fichas sincronizadas en esta revisión: {report.updated} ·
+              Despublicados por seguridad: {report.unpublished ?? 0}.
             </s-paragraph>
             {report.rows.map((item) => (
               <div
@@ -132,6 +136,9 @@ export default function BundleSync() {
                       " · Precio calculado: " +
                         item.expectedPrice.toLocaleString("es-CL") + " CLP"}
                   </s-text>
+                  {item.autoUnpublished && (
+                    <s-badge tone="warning">Despublicado por seguridad</s-badge>
+                  )}
                   {item.updated && (
                     <s-badge tone="success">
                       {item.updatedDetail === "compare_at"
