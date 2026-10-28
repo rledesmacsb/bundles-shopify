@@ -512,7 +512,7 @@ async function loadShopCurrency(
   ) {
     return {
       currencyCode:
-        currencyResult.currencyCode,
+        "CLP",
 
       errors: [
         error instanceof Error
