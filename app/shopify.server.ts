@@ -28,7 +28,18 @@ const shopify = shopifyApp({
   },
   hooks: {
     afterAuth: async ({ session }) => {
-      await shopify.registerWebhooks({ session });
+      // Shopify may temporarily reject webhook registration. A failure must
+      // never prevent merchants from entering the app. The sync dashboard
+      // and authenticated daily audit will retry registration.
+      try {
+        const result = await shopify.registerWebhooks({ session });
+        const deliveries = (result as Record<string, Array<{ success: boolean }>>).PRODUCTS_DELETE;
+        if (!Array.isArray(deliveries) || deliveries.some((item) => !item.success)) {
+          console.warn("Shopify products/delete subscription not confirmed");
+        }
+      } catch (error) {
+        console.error("Shopify products/delete registration error", error);
+      }
     },
   },
   future: {
