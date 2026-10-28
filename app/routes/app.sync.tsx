@@ -100,7 +100,7 @@ export default function BundleSync() {
             {last && (
               <s-text tone="neutral">
                 Último control guardado: {new Date(last.checkedAt).toLocaleString("es-CL")}.
-                Actualizados: {last.updated}.
+                Fichas sincronizadas: {last.updated}.
               </s-text>
             )}
           </s-stack>
@@ -110,7 +110,7 @@ export default function BundleSync() {
           <s-stack gap="base">
             <s-paragraph>
               Revisados: {report.total} · Con observaciones: {report.requiresAttention} ·
-              Precios corregidos en esta revisión: {report.updated}.
+              Fichas sincronizadas en esta revisión: {report.updated}.
             </s-paragraph>
             {report.rows.map((item) => (
               <div
@@ -132,7 +132,15 @@ export default function BundleSync() {
                       " · Precio calculado: " +
                         item.expectedPrice.toLocaleString("es-CL") + " CLP"}
                   </s-text>
-                  {item.updated && <s-badge tone="success">Precio actualizado</s-badge>}
+                  {item.updated && (
+                    <s-badge tone="success">
+                      {item.updatedDetail === "compare_at"
+                        ? "Precio de comparación actualizado"
+                        : item.updatedDetail === "both"
+                          ? "Precio y comparación actualizados"
+                          : "Precio de venta actualizado"}
+                    </s-badge>
+                  )}
                   {item.issues.length === 0 && !item.updated && (
                     <s-badge tone="success">Sin observaciones</s-badge>
                   )}
