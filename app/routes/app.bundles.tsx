@@ -754,6 +754,7 @@ export default function Bundles() {
     publicationAudit &&
     "ready" in publicationAudit &&
     publicationAudit.ready === true &&
+    "candidateId" in publicationAudit &&
     publicationAudit.candidateId === detailCandidateId
   );
 
@@ -2211,8 +2212,7 @@ export default function Bundles() {
                     ),
                 )
               }
-              paginationLabel={`${resultCount} resultados · Página ${page} de ${totalPages}`}
-            >
+             >
 
               <s-query-container slot="filters">
 
@@ -2397,9 +2397,6 @@ export default function Bundles() {
                       <s-table-row
                         key={
                           candidate.id
-                        }
-                        selected={
-                          selected
                         }
                       >
 
@@ -3375,7 +3372,8 @@ export default function Bundles() {
                           tone="success"
                         >
                           <s-stack gap="small">
-                            {"checks" in publicationAudit &&
+                            {publicationAudit &&
+                              "checks" in publicationAudit &&
                               Array.isArray(publicationAudit.checks) &&
                               publicationAudit.checks.map((check, index) => (
                                 <s-text key={index}>{check}</s-text>
