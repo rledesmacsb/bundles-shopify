@@ -49,12 +49,37 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       const { admin, session: offline } = await unauthenticated.admin(session.shop);
       let webhookRegistered = false;
       try {
-        const registration = await registerWebhooks({ session: offline });
-        const hooks = (registration as Record<string, Array<{ success: boolean }>>).PRODUCTS_DELETE;
-        webhookRegistered = Array.isArray(hooks) && hooks.length > 0 &&
-          hooks.every((hook) => hook.success);
+        await registerWebhooks({ session: offline });
+        const response = await admin.graphql(`#graphql
+          query CsbyteCronVerifyDeletionWebhook {
+            webhookSubscriptions(first: 50, topics: [PRODUCTS_DELETE]) {
+              nodes { id topic uri }
+              pageInfo { hasNextPage }
+            }
+          }
+        `);
+        const body = await response.json();
+        if (body.errors?.length) {
+          throw new Error(body.errors.map((e: { message: string }) => e.message).join(" · "));
+        }
+        const hooks = body.data?.webhookSubscriptions?.nodes ?? [];
+        webhookRegistered = hooks.some((hook: { topic: string; uri: string }) => {
+          try {
+            const endpoint = new URL(hook.uri, process.env.SHOPIFY_APP_URL);
+            return hook.topic === "PRODUCTS_DELETE" &&
+              endpoint.origin === new URL(process.env.SHOPIFY_APP_URL || "").origin &&
+              endpoint.pathname === "/webhooks/products/delete";
+          } catch {
+            return false;
+          }
+        });
+        if (!webhookRegistered) {
+          console.warn("CSBYTE cron: products/delete not verified in Shopify", {
+            shop: session.shop,
+          });
+        }
       } catch (error) {
-        console.warn("CSBYTE cron: webhook registration failed", {
+        console.warn("CSBYTE cron: webhook verification failed", {
           shop: session.shop,
           message: error instanceof Error ? error.message : "Error desconocido",
         });
@@ -72,6 +97,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         alerts: report.requiresAttention,
         disabled: report.unpublished,
         deletionWebhookRegistered: webhookRegistered,
+        pricingRuleConfigured: report.priceRuleConfigured,
         errors: report.errors,
       });
       console.info("CSBYTE cron shop result", {
