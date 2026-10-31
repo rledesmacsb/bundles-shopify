@@ -1,6 +1,7 @@
 import type { ActionFunctionArgs } from "react-router";
 import { authenticate, unauthenticated } from "../shopify.server";
 import { protectBundlesAfterProductDeletion } from "../lib/bundle-deletion.server";
+import { isAllowedShop } from "../lib/shop-allowlist.server";
 
 /**
  * Shopify products/delete webhook.
@@ -8,6 +9,11 @@ import { protectBundlesAfterProductDeletion } from "../lib/bundle-deletion.serve
  */
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { topic, shop, payload, admin } = await authenticate.webhook(request);
+
+  if (!isAllowedShop(shop)) {
+    console.warn("Ignoring webhook for unauthorized Shopify store", { shop });
+    return new Response(null, { status: 200 });
+  }
 
   if (topic !== "PRODUCTS_DELETE") {
     return new Response("Invalid webhook topic", { status: 400 });
