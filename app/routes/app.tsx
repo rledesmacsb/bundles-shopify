@@ -20,6 +20,7 @@ import {
 import {
   authenticate,
 } from "../shopify.server";
+import { isAllowedShop } from "../lib/shop-allowlist.server";
 
 /* =========================================================
    LOADER
@@ -29,9 +30,12 @@ export const loader =
   async ({
     request,
   }: LoaderFunctionArgs) => {
-    await authenticate.admin(
+    const { session } = await authenticate.admin(
       request,
     );
+    if (!isAllowedShop(session.shop)) {
+      throw new Response("Esta tienda no está autorizada para esta instalación.", { status: 403 });
+    }
 
     return {
       apiKey:
