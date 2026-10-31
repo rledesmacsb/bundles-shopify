@@ -58,7 +58,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
             }
           }
         `);
-        const body = await response.json();
+        const body = await response.json() as {
+          data?: { webhookSubscriptions?: { nodes: Array<{ topic: string; uri: string }> } };
+          errors?: Array<{ message: string }>;
+        };
         if (body.errors?.length) {
           throw new Error(body.errors.map((e: { message: string }) => e.message).join(" · "));
         }
