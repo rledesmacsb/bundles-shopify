@@ -2,6 +2,7 @@ import "@shopify/shopify-app-react-router/adapters/node";
 import {
   ApiVersion,
   AppDistribution,
+  DeliveryMethod,
   shopifyApp,
 } from "@shopify/shopify-app-react-router/server";
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
@@ -16,6 +17,31 @@ const shopify = shopifyApp({
   authPathPrefix: "/auth",
   sessionStorage: new PrismaSessionStorage(prisma),
   distribution: AppDistribution.AppStore,
+  // Shop-specific subscription registers through this app's own token.
+  // Unlike a TOML app-specific subscription, it does not require a separate
+  // Shopify CLI version release for the already-installed dev store.
+  webhooks: {
+    PRODUCTS_DELETE: {
+      deliveryMethod: DeliveryMethod.Http,
+      callbackUrl: "/webhooks/products/delete",
+    },
+  },
+  hooks: {
+    afterAuth: async ({ session }) => {
+      // Shopify may temporarily reject webhook registration. A failure must
+      // never prevent merchants from entering the app. The sync dashboard
+      // and authenticated daily audit will retry registration.
+      try {
+        const result = await shopify.registerWebhooks({ session });
+        const deliveries = (result as Record<string, Array<{ success: boolean }>>).PRODUCTS_DELETE;
+        if (!Array.isArray(deliveries) || deliveries.some((item) => !item.success)) {
+          console.warn("Shopify products/delete subscription not confirmed");
+        }
+      } catch (error) {
+        console.error("Shopify products/delete registration error", error);
+      }
+    },
+  },
   future: {
     expiringOfflineAccessTokens: true,
   },

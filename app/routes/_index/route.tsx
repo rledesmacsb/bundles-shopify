@@ -1,57 +1,19 @@
 import type { LoaderFunctionArgs } from "react-router";
-import { redirect, Form, useLoaderData } from "react-router";
+import { redirect } from "react-router";
 
-import { login } from "../../shopify.server";
-
-import styles from "./styles.module.css";
-
+/**
+ * The public root is the Shopify application entry point, not a marketing page.
+ * Redirect to Bundles and retain Shopify's shop/host/embedded query parameters
+ * so that the app's existing authentication flow can use them.
+ *
+ * For direct visits without Shopify context, authenticate.admin() in /app
+ * handles the login requirement. This route never bypasses authentication.
+ */
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const url = new URL(request.url);
-
-  if (url.searchParams.get("shop")) {
-    throw redirect(`/app?${url.searchParams.toString()}`);
-  }
-
-  return { showForm: Boolean(login) };
+  return redirect(`/app/bundles${url.search}`);
 };
 
-export default function App() {
-  const { showForm } = useLoaderData<typeof loader>();
-
-  return (
-    <div className={styles.index}>
-      <div className={styles.content}>
-        <h1 className={styles.heading}>A short heading about [your app]</h1>
-        <p className={styles.text}>
-          A tagline about [your app] that describes your value proposition.
-        </p>
-        {showForm && (
-          <Form className={styles.form} method="post" action="/auth/login">
-            <label className={styles.label}>
-              <span>Shop domain</span>
-              <input className={styles.input} type="text" name="shop" />
-              <span>e.g: my-shop-domain.myshopify.com</span>
-            </label>
-            <button className={styles.button} type="submit">
-              Log in
-            </button>
-          </Form>
-        )}
-        <ul className={styles.list}>
-          <li>
-            <strong>Product feature</strong>. Some detail about your feature and
-            its benefit to your customer.
-          </li>
-          <li>
-            <strong>Product feature</strong>. Some detail about your feature and
-            its benefit to your customer.
-          </li>
-          <li>
-            <strong>Product feature</strong>. Some detail about your feature and
-            its benefit to your customer.
-          </li>
-        </ul>
-      </div>
-    </div>
-  );
+export default function Index() {
+  return null;
 }

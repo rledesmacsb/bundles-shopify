@@ -1,6 +1,7 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -13,6 +14,7 @@ import type {
 import {
   useFetcher,
   useLoaderData,
+  useRevalidator,
 } from "react-router";
 
 import {
@@ -39,22 +41,37 @@ import {
 } from "../lib/bundle-template-engine";
 
 import {
-  loadBundleTemplateCatalog,
-} from "../lib/bundle-template-catalog.server";
-
-import {
-  loadBundleRuntimeSettings,
-} from "../lib/bundle-runtime-settings.server";
-
-import {
-  loadExistingPcMonitorBundleMatches,
   type ExistingBundleLookupStatus,
 } from "../lib/bundle-existing.server";
+
+import {
+  invalidateShopBundleCache,
+  loadCachedBundleRuntimeSettings,
+  loadCachedBundleTemplateCatalog,
+  loadCachedExistingBundleMatches,
+  loadCachedBundleReadiness,
+} from "../lib/bundle-cache.server";
 
 import {
   loadPcMonitorManualExcludedProductIds,
   savePcMonitorManualExcludedProductIds,
 } from "../lib/bundle-data.server";
+
+import {
+  createDraftBundleFromCandidate,
+  syncExistingBundleWeightFromCandidate,
+} from "../lib/bundle-create.server";
+
+import {
+  validateBundlePublication,
+  publishValidatedBundle,
+} from "../lib/bundle-publish.server";
+
+import { buildBundleProductContent } from "../lib/bundle-description";
+import { isAllowedShop } from "../lib/shop-allowlist.server";
+import { completeMissingBundleContent } from "../lib/bundle-description.server";
+import { completeMissingBundleCompareAtPrice } from "../lib/bundle-compare-price.server";
+import { addImagesToExistingManagedBundle } from "../lib/bundle-images.server";
 
 /* =========================================================
    LOADER
@@ -66,23 +83,30 @@ export const loader =
   }: LoaderFunctionArgs) => {
     const {
       admin,
+      session,
     } =
       await authenticate.admin(
         request,
       );
+    if (!isAllowedShop(session.shop)) {
+      throw new Response("Tienda no autorizada para CSBYTE Bundles.", { status: 403 });
+    }
 
-    /*
-     * Sequential intentionally.
-     */
-    const catalog =
-      await loadBundleTemplateCatalog(
-        admin,
-      );
+    const [
+      catalog,
+      runtime,
+    ] =
+      await Promise.all([
+        loadCachedBundleTemplateCatalog(
+          admin,
+          session.shop,
+        ),
 
-    const runtime =
-      await loadBundleRuntimeSettings(
-        admin,
-      );
+        loadCachedBundleRuntimeSettings(
+          admin,
+          session.shop,
+        ),
+      ]);
 
     const state =
       buildTemplateBundleState(
@@ -91,11 +115,43 @@ export const loader =
         runtime.componentConfig,
       );
 
-    const existingBundleMatches =
-      await loadExistingPcMonitorBundleMatches(
+    // Publication access is optional until Shopify has approved the new
+    // read_publications scope. Failure to inspect scopes must never block
+    // the rest of the Bundles page.
+    let publishPermissionsReady = false;
+    try {
+      const scopesResponse = await admin.graphql(`#graphql
+        query CsbyteBundlePublicationPermissions {
+          currentAppInstallation { accessScopes { handle } }
+        }
+      `);
+      const scopeData = await scopesResponse.json() as {
+        data?: { currentAppInstallation?: { accessScopes?: Array<{ handle: string }> } };
+        errors?: Array<{ message: string }>;
+      };
+      const activeScopes = (
+        scopeData.errors?.length ? [] :
+        scopeData.data?.currentAppInstallation?.accessScopes ?? []
+      ).map((scope) => scope.handle);
+      publishPermissionsReady =
+        activeScopes.includes("read_publications") &&
+        activeScopes.includes("write_publications");
+    } catch {
+      publishPermissionsReady = false;
+    }
+
+    const [existingBundleMatches, readiness] = await Promise.all([
+      loadCachedExistingBundleMatches(
         admin,
+        session.shop,
         state.candidates,
-      );
+      ),
+      loadCachedBundleReadiness(
+        admin,
+        session.shop,
+        state.candidates,
+      ),
+    ]);
 
     return {
       catalog,
@@ -103,6 +159,10 @@ export const loader =
       runtime,
 
       existingBundleMatches,
+
+      readiness,
+
+      publishPermissionsReady,
     };
   };
 
@@ -116,10 +176,14 @@ export const action =
   }: ActionFunctionArgs) => {
     const {
       admin,
+      session,
     } =
       await authenticate.admin(
         request,
       );
+    if (!isAllowedShop(session.shop)) {
+      throw new Response("Tienda no autorizada para modificar Bundles.", { status: 403 });
+    }
 
     const formData =
       await request.formData();
@@ -131,6 +195,191 @@ export const action =
         ) ??
           "",
       );
+
+    /* -----------------------------------------------------
+       CREATE ONE DRAFT
+
+       The browser sends only candidateId.
+       The server rebuilds and validates the candidate before
+       any Shopify mutation is allowed.
+    ----------------------------------------------------- */
+
+    if (
+      intent ===
+      "create_draft"
+    ) {
+      const candidateId =
+        String(
+          formData.get(
+            "candidateId",
+          ) ??
+            "",
+        ).trim();
+
+      if (
+        !candidateId
+      ) {
+        return {
+          success:
+            false,
+
+          message:
+            "No se recibió la propuesta a crear.",
+        };
+      }
+
+      const result =
+        await createDraftBundleFromCandidate(
+          admin,
+          candidateId,
+        );
+
+      if (
+        result.success ||
+        (
+          "partial" in
+            result &&
+          Boolean(
+            result.partial,
+          )
+        )
+      ) {
+        invalidateShopBundleCache(
+          session.shop,
+        );
+      }
+
+      return result;
+    }
+
+    /* -----------------------------------------------------
+       VALIDATE / PUBLISH ONE BUNDLE
+       The server resolves product, components and Online Store itself.
+       A confirmation never trusts a client-supplied Shopify product ID.
+    ----------------------------------------------------- */
+    if (intent === "validate_publish" || intent === "publish_online_store") {
+      const candidateId = String(formData.get("candidateId") ?? "").trim();
+      if (!candidateId) {
+        return {
+          success: false,
+          ready: false,
+          message: "No se recibió el Bundles a publicar.",
+        };
+      }
+
+      const result = intent === "validate_publish"
+        ? await validateBundlePublication(admin, candidateId)
+        : await publishValidatedBundle(admin, candidateId);
+
+      if (intent === "publish_online_store" &&
+        (result.success || ("partial" in result && result.partial))) {
+        invalidateShopBundleCache(session.shop);
+      }
+
+      return result;
+    }
+
+    /* -----------------------------------------------------
+       COMPLETE EMPTY DESCRIPTION ON AN EXISTING MANAGED DRAFT
+       Never overwrite manual product copy.
+    ----------------------------------------------------- */
+    if (intent === "complete_description") {
+      const candidateId = String(formData.get("candidateId") ?? "").trim();
+      const result = await completeMissingBundleContent(admin, candidateId);
+      if (result.success) {
+        invalidateShopBundleCache(session.shop);
+      }
+      return result;
+    }
+
+    /* -----------------------------------------------------
+       COMPLETE COMPARE-AT PRICE ON ONE EXISTING MANAGED DRAFT
+    ----------------------------------------------------- */
+    if (intent === "complete_compare_at_price") {
+      const candidateId = String(formData.get("candidateId") ?? "").trim();
+      const result = await completeMissingBundleCompareAtPrice(admin, candidateId);
+      if (result.success) {
+        invalidateShopBundleCache(session.shop);
+      }
+      return result;
+    }
+
+    /* -----------------------------------------------------
+       ADD COMPONENT IMAGES TO A MANAGED BUNDLE WITH NO GALLERY
+       Also available for products already ACTIVE and published.
+    ----------------------------------------------------- */
+    if (intent === "complete_images") {
+      const candidateId = String(formData.get("candidateId") ?? "").trim();
+      const result = await addImagesToExistingManagedBundle(admin, candidateId);
+      if (result.success && result.changed) {
+        invalidateShopBundleCache(session.shop);
+      }
+      return result;
+    }
+
+    /* -----------------------------------------------------
+       SYNC WEIGHT ON AN EXISTING BUNDLES PRODUCT
+    ----------------------------------------------------- */
+
+    if (
+      intent ===
+      "sync_weight"
+    ) {
+      const candidateId =
+        String(
+          formData.get(
+            "candidateId",
+          ) ??
+            "",
+        ).trim();
+
+      if (
+        !candidateId
+      ) {
+        return {
+          success:
+            false,
+
+          message:
+            "No se recibió la propuesta a actualizar.",
+        };
+      }
+
+      const result =
+        await syncExistingBundleWeightFromCandidate(
+          admin,
+          candidateId,
+        );
+
+      if (
+        result.success
+      ) {
+        invalidateShopBundleCache(
+          session.shop,
+        );
+      }
+
+      return result;
+    }
+
+    /* -----------------------------------------------------
+       MANUAL BASE-PC EXCLUSION
+    ----------------------------------------------------- */
+
+    if (
+      intent !==
+        "exclude" &&
+      intent !==
+        "include"
+    ) {
+      return {
+        success:
+          false,
+
+        message:
+          "Acción no válida.",
+      };
+    }
 
     const productId =
       String(
@@ -149,21 +398,6 @@ export const action =
 
         message:
           "No se recibió el producto.",
-      };
-    }
-
-    if (
-      intent !==
-        "exclude" &&
-      intent !==
-        "include"
-    ) {
-      return {
-        success:
-          false,
-
-        message:
-          "Acción no válida.",
       };
     }
 
@@ -204,6 +438,10 @@ export const action =
       return result;
     }
 
+    invalidateShopBundleCache(
+      session.shop,
+    );
+
     return {
       success:
         true,
@@ -216,78 +454,63 @@ export const action =
     };
   };
 
+/*
+ * La creación masiva reutiliza la misma acción segura de una
+ * sola propuesta. Durante el lote evitamos recargar este loader
+ * completo después de cada bundle y lo actualizamos una vez al final.
+ */
+export const shouldRevalidate = ({
+  formData,
+  defaultShouldRevalidate,
+}: any) => {
+  if (
+    formData?.get(
+      "skipRevalidate",
+    ) ===
+    "true"
+  ) {
+    return false;
+  }
+
+  return defaultShouldRevalidate;
+};
+
 /* =========================================================
-   FILTER
+   WORKFLOW VIEWS
 ========================================================= */
 
-type BundleFilter =
-  | "all"
-  | "new"
-  | "existing"
+type BundleView =
+  | "create"
+  | "published"
+  | "unpublished"
   | "review"
-  | "excluded"
-  | `template:${string}`;
+  | "excluded";
 
-/* =========================================================
-   STATUS
-========================================================= */
+type BundleSort =
+  | "stock_desc"
+  | "price_asc"
+  | "savings_desc";
 
-function getStatusLabel(
+type BulkCreationResult = {
+  candidateId: string;
+  success: boolean;
+  partial: boolean;
+  message: string;
+};
+
+const PAGE_SIZE =
+  25;
+
+function isExistingStatus(
   status:
     ExistingBundleLookupStatus,
 ) {
-  switch (
-    status
-  ) {
-    case "new":
-      return "Nuevo";
-
-    case "existing_managed":
-      return "Ya existe";
-
-    case "existing_legacy":
-      return "Existente legado";
-
-    case "sku_conflict":
-      return "Conflicto SKU";
-
-    case "missing_base_sku":
-      return "Falta SKU";
-
-    case "lookup_error":
-      return "Error";
-
-    default:
-      return "Revisar";
-  }
-}
-
-function getStatusClass(
-  status:
-    ExistingBundleLookupStatus,
-) {
-  switch (
-    status
-  ) {
-    case "new":
-      return "csb-status csb-status--new";
-
-    case "existing_managed":
-      return "csb-status csb-status--existing";
-
-    case "existing_legacy":
-      return "csb-status csb-status--legacy";
-
-    case "sku_conflict":
-    case "missing_base_sku":
-      return "csb-status csb-status--warning";
-
-    case "lookup_error":
-      return "csb-status csb-status--error";
-
-    default:
-      return "csb-status";
-  }
+  return (
+    status ===
+      "existing_managed" ||
+    status ===
+      "existing_legacy"
+  );
 }
 
 function isReviewStatus(
@@ -302,6 +525,151 @@ function isReviewStatus(
     status ===
       "lookup_error"
   );
+}
+
+function getWorkflowStatusLabel(
+  status:
+    ExistingBundleLookupStatus,
+
+  publishedAt:
+    | string
+    | null
+    | undefined,
+) {
+  if (
+    status ===
+    "new"
+  ) {
+    return "Por crear";
+  }
+
+  if (
+    isExistingStatus(
+      status,
+    )
+  ) {
+    return publishedAt
+      ? "Publicado"
+      : "Sin publicar";
+  }
+
+  switch (
+    status
+  ) {
+    case "sku_conflict":
+      return "Conflicto SKU";
+
+    case "missing_base_sku":
+      return "Falta SKU";
+
+    case "lookup_error":
+      return "Revisar";
+
+    default:
+      return "Revisar";
+  }
+}
+
+function getWorkflowStatusTone(
+  status:
+    ExistingBundleLookupStatus,
+
+  publishedAt:
+    | string
+    | null
+    | undefined,
+) {
+  if (
+    status ===
+    "new"
+  ) {
+    return "info" as const;
+  }
+
+  if (
+    isExistingStatus(
+      status,
+    )
+  ) {
+    return publishedAt
+      ? "success" as const
+      : "neutral" as const;
+  }
+
+  return "warning" as const;
+}
+
+function getProductStatusLabel(
+  status:
+    | string
+    | null
+    | undefined,
+) {
+  switch (
+    status
+  ) {
+    case "ACTIVE":
+      return "Activo";
+
+    case "DRAFT":
+      return "Borrador";
+
+    case "ARCHIVED":
+      return "Archivado";
+
+    case "UNLISTED":
+      return "No listado";
+
+    default:
+      return status
+        ? status
+        : "No creado";
+  }
+}
+
+function getProductStatusTone(
+  status:
+    | string
+    | null
+    | undefined,
+) {
+  switch (
+    status
+  ) {
+    case "ACTIVE":
+      return "success" as const;
+
+    case "DRAFT":
+      return "info" as const;
+
+    case "ARCHIVED":
+      return "critical" as const;
+
+    case "UNLISTED":
+      return "caution" as const;
+
+    default:
+      return "neutral" as const;
+  }
+}
+
+function getShopifyAdminProductHref(
+  productId:
+    string,
+) {
+  const numericId =
+    productId
+      .split("/")
+      .filter(
+        Boolean,
+      )
+      .at(
+        -1,
+      );
+
+  return numericId
+    ? `shopify:admin/products/${numericId}`
+    : "shopify:admin/products";
 }
 
 /* =========================================================
@@ -319,8 +687,21 @@ export default function Bundles() {
       typeof action
     >();
 
+  const bulkFetcher =
+    useFetcher<
+      typeof action
+    >();
+
+  const publishFetcher = useFetcher<typeof action>();
+
+  const revalidator =
+    useRevalidator();
+
   const shopify =
     useAppBridge();
+
+  const publishingBusy = publishFetcher.state !== "idle";
+  const publicationAudit = publishFetcher.data;
 
   const [
     search,
@@ -331,14 +712,149 @@ export default function Bundles() {
     );
 
   const [
-    filter,
-    setFilter,
+    view,
+    setView,
   ] =
     useState<
-      BundleFilter
+      BundleView
     >(
+      "create",
+    );
+
+  const [
+    templateFilter,
+    setTemplateFilter,
+  ] =
+    useState(
       "all",
     );
+
+  const [
+    sortMode,
+    setSortMode,
+  ] =
+    useState<
+      BundleSort
+    >(
+      "stock_desc",
+    );
+
+  const [
+    page,
+    setPage,
+  ] =
+    useState(
+      1,
+    );
+
+  const [
+    detailCandidateId,
+    setDetailCandidateId,
+  ] =
+    useState<
+      string | null
+    >(
+      null,
+    );
+
+  const publicationApproved = Boolean(
+    publicationAudit &&
+    "ready" in publicationAudit &&
+    publicationAudit.ready === true &&
+    "candidateId" in publicationAudit &&
+    publicationAudit.candidateId === detailCandidateId
+  );
+
+  const [
+    creatingCandidateId,
+    setCreatingCandidateId,
+  ] =
+    useState<
+      string | null
+    >(
+      null,
+    );
+
+  const [
+    selectedCandidateIds,
+    setSelectedCandidateIds,
+  ] =
+    useState<
+      Set<string>
+    >(
+      new Set(),
+    );
+
+  // Shopify search indexes may not reflect a newly verified draft immediately.
+  // A successful, audited create response is authoritative for this page session.
+  const [
+    recentlyCreated,
+    setRecentlyCreated,
+  ] = useState<
+    Map<string, {
+      productId: string;
+      partial: boolean;
+      message: string;
+    }>
+  >(new Map());
+
+  const [
+    bulkQueue,
+    setBulkQueue,
+  ] =
+    useState<
+      string[]
+    >(
+      [],
+    );
+
+  const [
+    bulkCurrentCandidateId,
+    setBulkCurrentCandidateId,
+  ] =
+    useState<
+      string | null
+    >(
+      null,
+    );
+
+  const [
+    bulkResults,
+    setBulkResults,
+  ] =
+    useState<
+      BulkCreationResult[]
+    >(
+      [],
+    );
+
+  const [
+    bulkRunning,
+    setBulkRunning,
+  ] =
+    useState(
+      false,
+    );
+
+  const bulkWasBusyRef =
+    useRef(
+      false,
+    );
+
+  useEffect(() => {
+    if (publishFetcher.data?.message) {
+      shopify.toast.show(publishFetcher.data.message);
+    }
+    if (
+      publishFetcher.data?.success &&
+      "ready" in publishFetcher.data &&
+      publishFetcher.data.ready === false
+    ) {
+      void shopify.modal.hide("bundle-publish-confirm-modal");
+      setDetailCandidateId(null);
+      revalidator.revalidate();
+    }
+  }, [publishFetcher.data, shopify, revalidator]);
 
   useEffect(() => {
     if (
@@ -353,9 +869,255 @@ export default function Bundles() {
     shopify,
   ]);
 
-  /* =======================================================
-     GENERIC TEMPLATE ENGINE
-  ======================================================= */
+  useEffect(() => {
+    const response = fetcher.data;
+    if (
+      !creatingCandidateId ||
+      !response ||
+      !("productId" in response) ||
+      typeof response.productId !== "string" ||
+      !(response.success || ("partial" in response && response.partial))
+    ) {
+      return;
+    }
+
+    setRecentlyCreated((previous) => {
+      const next = new Map(previous);
+      next.set(creatingCandidateId, {
+        productId: response.productId as string,
+        partial: !response.success,
+        message: response.message,
+      });
+      return next;
+    });
+  }, [fetcher.data, creatingCandidateId]);
+
+  useEffect(() => {
+    if (
+      fetcher.state ===
+      "idle"
+    ) {
+      setCreatingCandidateId(
+        null,
+      );
+    }
+  }, [
+    fetcher.state,
+  ]);
+
+  useEffect(() => {
+    const handleKeyDown =
+      (
+        event:
+          KeyboardEvent,
+      ) => {
+        if (
+          event.key ===
+          "Escape"
+        ) {
+          setDetailCandidateId(
+            null,
+          );
+        }
+      };
+
+    window.addEventListener(
+      "keydown",
+      handleKeyDown,
+    );
+
+    return () =>
+      window.removeEventListener(
+        "keydown",
+        handleKeyDown,
+      );
+  }, []);
+
+  useEffect(() => {
+    if (
+      bulkFetcher.state !==
+      "idle"
+    ) {
+      bulkWasBusyRef.current =
+        true;
+
+      return;
+    }
+
+    if (
+      !bulkRunning ||
+      !bulkCurrentCandidateId ||
+      !bulkWasBusyRef.current
+    ) {
+      return;
+    }
+
+    bulkWasBusyRef.current =
+      false;
+
+    const result =
+      bulkFetcher.data;
+
+    const normalizedResult:
+      BulkCreationResult = {
+      candidateId:
+        bulkCurrentCandidateId,
+
+      success:
+        Boolean(
+          result?.success,
+        ),
+
+      partial:
+        Boolean(
+          result &&
+          "partial" in
+            result &&
+          result.partial,
+        ),
+
+      message:
+        result?.message ??
+        "La solicitud terminó sin una respuesta válida.",
+    };
+
+    const nextResults = [
+      ...bulkResults,
+      normalizedResult,
+    ];
+
+    setBulkResults(
+      nextResults,
+    );
+
+    if (
+      result &&
+      "productId" in result &&
+      typeof result.productId === "string" &&
+      (normalizedResult.success || normalizedResult.partial)
+    ) {
+      setRecentlyCreated((previous) => {
+        const next = new Map(previous);
+        next.set(bulkCurrentCandidateId, {
+          productId: result.productId as string,
+          partial: normalizedResult.partial,
+          message: normalizedResult.message,
+        });
+        return next;
+      });
+    }
+
+    // Fail closed: stop the batch after any failure or uncertain result.
+    // Shopify can create a product before a subsequent configuration step
+    // fails. Continuing automatically could hide a partially created item.
+    if (!normalizedResult.success) {
+      setBulkRunning(false);
+      setBulkCurrentCandidateId(null);
+      setSelectedCandidateIds(new Set());
+
+      shopify.toast.show(
+        normalizedResult.partial
+          ? "Creación detenida: revisa el producto que Shopify pudo haber creado."
+          : "Creación detenida: revisa el motivo del rechazo.",
+      );
+
+      revalidator.revalidate();
+      return;
+    }
+
+    const currentIndex =
+      bulkQueue.indexOf(
+        bulkCurrentCandidateId,
+      );
+
+    const nextCandidateId =
+      currentIndex >=
+        0
+        ? bulkQueue[
+            currentIndex +
+              1
+          ] ??
+          null
+        : null;
+
+    if (
+      nextCandidateId
+    ) {
+      setBulkCurrentCandidateId(
+        nextCandidateId,
+      );
+
+      bulkFetcher.submit(
+        {
+          intent:
+            "create_draft",
+
+          candidateId:
+            nextCandidateId,
+
+          skipRevalidate:
+            "true",
+        },
+        {
+          method:
+            "post",
+        },
+      );
+
+      return;
+    }
+
+    setBulkRunning(
+      false,
+    );
+
+    setBulkCurrentCandidateId(
+      null,
+    );
+
+    setSelectedCandidateIds(
+      new Set(),
+    );
+
+    const created =
+      nextResults.filter(
+        (item) =>
+          item.success,
+      ).length;
+
+    const review =
+      nextResults.filter(
+        (item) =>
+          !item.success &&
+          item.partial,
+      ).length;
+
+    const skipped =
+      nextResults.length -
+      created -
+      review;
+
+    shopify.toast.show(
+      "Proceso terminado: " +
+      created +
+      " creados, " +
+      skipped +
+      " omitidos y " +
+      review +
+      " para revisar.",
+    );
+
+    revalidator.revalidate();
+  }, [
+    bulkFetcher.state,
+    bulkFetcher.data,
+    bulkRunning,
+    bulkCurrentCandidateId,
+    bulkQueue,
+    bulkResults,
+    shopify,
+    revalidator,
+  ]);
 
   const state =
     useMemo(
@@ -373,35 +1135,247 @@ export default function Bundles() {
     );
 
   const matchByCandidateId =
-    useMemo(
-      () =>
-        new Map(
-          data
-            .existingBundleMatches
-            .matches
-            .map(
-              (match) => [
-                match.candidateId,
-                match,
-              ],
-            ),
-        ),
-      [
-        data
-          .existingBundleMatches
-          .matches,
-      ],
+    useMemo(() => {
+      const matches = new Map(
+        data.existingBundleMatches.matches.map((match) => [
+          match.candidateId,
+          match,
+        ]),
+      );
+
+      for (const [candidateId, created] of recentlyCreated) {
+        const serverMatch = matches.get(candidateId);
+        if (!serverMatch) {
+          continue;
+        }
+
+        // Do not hide a different product that Shopify has now identified.
+        if (
+          serverMatch.existingProduct?.id &&
+          serverMatch.existingProduct.id !== created.productId
+        ) {
+          continue;
+        }
+
+        if (
+          isExistingStatus(serverMatch.status) &&
+          serverMatch.existingProduct?.id === created.productId
+        ) {
+          continue;
+        }
+
+        const candidate = state.candidates.find(
+          (item) => item.id === candidateId,
+        );
+
+        matches.set(candidateId, {
+          ...serverMatch,
+          status: created.partial ? "lookup_error" : "existing_managed",
+          existingProduct: {
+            id: created.productId,
+            title: candidate?.identity.title ?? "Bundles",
+            handle: "",
+            status: created.partial ? "UNKNOWN" : "DRAFT",
+            productType: candidate?.identity.productType ?? "Bundles",
+            publishedAt: null,
+            sku: candidate?.identity.sku ?? null,
+            managedBy: created.partial ? null : "csbyte-commerce-tools",
+            template: candidate?.templateId ?? null,
+            baseProductId: candidate?.baseProduct.id ?? null,
+            componentProductIds: [],
+            componentProducts: [],
+          },
+          message: created.partial
+            ? `Shopify creó el producto, pero su configuración necesita revisión: ${created.message}`
+            : "Borrador creado y verificado. Pendiente de publicación en Tienda online.",
+        });
+      }
+
+      return matches;
+    }, [data.existingBundleMatches.matches, recentlyCreated, state.candidates]);
+
+  const allMatches = Array.from(matchByCandidateId.values());
+
+  const readinessByCandidateId = useMemo(() => {
+    const indexed = new Map<string, typeof data.readiness.issues>();
+    for (const issue of data.readiness.issues) {
+      const existing = indexed.get(issue.candidateId) ?? [];
+      indexed.set(issue.candidateId, [...existing, issue]);
+    }
+    return indexed;
+  }, [data.readiness.issues]);
+
+  const readinessUnavailable = data.readiness.errors.length > 0;
+
+  const needsComponentReview = (candidateId: string) =>
+    readinessUnavailable ||
+    (readinessByCandidateId.get(candidateId)?.length ?? 0) > 0;
+
+  const isCandidateReady = (candidateId: string) =>
+    matchByCandidateId.get(candidateId)?.status === "new" &&
+    !needsComponentReview(candidateId);
+
+  const needsCandidateReview = (candidateId: string) => {
+    const match = matchByCandidateId.get(candidateId);
+    return Boolean(
+      match &&
+      (isReviewStatus(match.status) ||
+        (match.status === "new" && needsComponentReview(candidateId))),
     );
+  };
 
-  /* =======================================================
-     SORT BY FINAL COMMERCIAL PRICE
-  ======================================================= */
+  const createCount =
+    allMatches.filter((match) => isCandidateReady(match.candidateId)).length;
 
-  const sortedCandidates =
+  const reviewCount =
+    allMatches.filter((match) => needsCandidateReview(match.candidateId)).length +
+    state.multiVariantBaseProducts.length;
+
+  const publishedCount =
+    allMatches.filter(
+      (match) =>
+        isExistingStatus(match.status) &&
+        Boolean(match.existingProduct?.publishedAt),
+    ).length;
+
+  const unpublishedCount =
+    allMatches.filter(
+      (match) =>
+        isExistingStatus(match.status) &&
+        !match.existingProduct?.publishedAt,
+    ).length;
+
+  const excludedCount =
+    state.manuallyExcludedProducts.length +
+    state.automaticallyExcludedProducts.length;
+
+  const filteredCandidates =
     useMemo(
-      () =>
-        [
-          ...state.candidates,
+      () => {
+        const query =
+          search
+            .trim()
+            .toLocaleLowerCase(
+              "es",
+            );
+
+        const candidates =
+          state.candidates.filter(
+            (candidate) => {
+              const match =
+                matchByCandidateId.get(
+                  candidate.id,
+                );
+
+              if (
+                !match
+              ) {
+                return false;
+              }
+
+              if (view === "create" && !isCandidateReady(candidate.id)) {
+                return false;
+              }
+
+              if (view === "review" && !needsCandidateReview(candidate.id)) {
+                return false;
+              }
+
+              if (
+                view ===
+                "published"
+              ) {
+                if (
+                  !isExistingStatus(
+                    match.status,
+                  ) ||
+                  !match
+                    .existingProduct
+                    ?.publishedAt
+                ) {
+                  return false;
+                }
+              }
+
+              if (
+                view ===
+                "unpublished"
+              ) {
+                if (
+                  !isExistingStatus(
+                    match.status,
+                  ) ||
+                  match
+                    .existingProduct
+                    ?.publishedAt
+                ) {
+                  return false;
+                }
+              }
+
+              if (
+                view ===
+                "excluded"
+              ) {
+                return false;
+              }
+
+              if (
+                templateFilter !==
+                  "all" &&
+                candidate.templateId !==
+                  templateFilter
+              ) {
+                return false;
+              }
+
+              if (
+                !query
+              ) {
+                return true;
+              }
+
+              const baseSku =
+                getFirstTemplateVariant(
+                  candidate.baseProduct,
+                )?.sku ??
+                "";
+
+              const monitorSku =
+                getFirstTemplateVariant(
+                  candidate.monitor,
+                )?.sku ??
+                "";
+
+              return [
+                candidate.identity.title,
+                match.existingProduct?.title ?? "",
+                candidate
+                  .baseProduct
+                  .title,
+                candidate
+                  .monitor
+                  .title,
+                candidate
+                  .identity
+                  .sku,
+                baseSku,
+                monitorSku,
+              ].some(
+                (value) =>
+                  value
+                    .toLocaleLowerCase(
+                      "es",
+                    )
+                    .includes(
+                      query,
+                    ),
+              );
+            },
+          );
+
+        return [
+          ...candidates,
         ].sort(
           (
             a,
@@ -411,22 +1385,47 @@ export default function Bundles() {
               calculateTemplateCandidatePrice(
                 a,
                 data.runtime.priceConfig,
-              ).finalPrice;
+              );
 
             const priceB =
               calculateTemplateCandidatePrice(
                 b,
                 data.runtime.priceConfig,
-              ).finalPrice;
+              );
 
             if (
-              priceA !==
-              priceB
+              sortMode ===
+              "price_asc"
             ) {
               return (
-                priceA -
-                priceB
+                priceA.finalPrice -
+                priceB.finalPrice
               );
+            }
+
+            if (
+              sortMode ===
+              "savings_desc"
+            ) {
+              return (
+                priceB.savings -
+                priceA.savings
+              );
+            }
+
+            const stockDifference =
+              getTemplateCandidateStock(
+                b,
+              ) -
+              getTemplateCandidateStock(
+                a,
+              );
+
+            if (
+              stockDifference !==
+              0
+            ) {
+              return stockDifference;
             }
 
             return a.identity.title.localeCompare(
@@ -434,301 +1433,140 @@ export default function Bundles() {
               "es",
             );
           },
-        ),
+        );
+      },
       [
         state.candidates,
+        matchByCandidateId,
+        search,
+        view,
+        templateFilter,
+        sortMode,
         data.runtime.priceConfig,
       ],
     );
 
-  /* =======================================================
-     COUNTS
-  ======================================================= */
+  useEffect(() => {
+    setPage(
+      1,
+    );
+  }, [
+    search,
+    view,
+    templateFilter,
+    sortMode,
+  ]);
 
-  const newCount =
-    data
-      .existingBundleMatches
-      .matches
-      .filter(
-        (match) =>
-          match.status ===
-          "new",
-      )
-      .length;
+  useEffect(() => {
+    if (
+      !bulkRunning
+    ) {
+      setSelectedCandidateIds(
+        new Set(),
+      );
+    }
 
-  const existingCount =
-    data
-      .existingBundleMatches
-      .matches
-      .filter(
-        (match) =>
-          match.status ===
-            "existing_managed" ||
-          match.status ===
-            "existing_legacy",
-      )
-      .length;
+    setDetailCandidateId(
+      null,
+    );
+  }, [
+    view,
+    templateFilter,
+    bulkRunning,
+  ]);
 
-  const reviewMatchCount =
-    data
-      .existingBundleMatches
-      .matches
+  const totalPages =
+    Math.max(
+      1,
+      Math.ceil(
+        filteredCandidates.length /
+        PAGE_SIZE,
+      ),
+    );
+
+  useEffect(() => {
+    if (
+      page >
+      totalPages
+    ) {
+      setPage(
+        totalPages,
+      );
+    }
+  }, [
+    page,
+    totalPages,
+  ]);
+
+  const pagedCandidates =
+    filteredCandidates.slice(
+      (
+        page -
+        1
+      ) *
+        PAGE_SIZE,
+
+      page *
+        PAGE_SIZE,
+    );
+
+  const visibleNewCandidateIds =
+    pagedCandidates
       .filter(
-        (match) =>
-          isReviewStatus(
-            match.status,
+        (candidate) =>
+          isCandidateReady(
+            candidate.id,
           ),
       )
-      .length;
+      .map(
+        (candidate) =>
+          candidate.id,
+      );
 
-  const reviewCount =
-    reviewMatchCount +
-    state
-      .multiVariantBaseProducts
-      .length;
+  const selectedNewCandidateIds =
+    state.candidates
+      .filter(
+        (candidate) =>
+          selectedCandidateIds.has(
+            candidate.id,
+          ) &&
+          isCandidateReady(
+            candidate.id,
+          ),
+      )
+      .map(
+        (candidate) =>
+          candidate.id,
+      );
 
-  const excludedCount =
-    state
-      .manuallyExcludedProducts
-      .length +
-    state
-      .automaticallyExcludedProducts
-      .length;
-
-  /* =======================================================
-     VISIBLE CANDIDATES
-  ======================================================= */
-
-  const visibleCandidates =
-    useMemo(
-      () => {
-        if (
-          filter ===
-          "excluded"
-        ) {
-          return [];
-        }
-
-        const query =
-          search
-            .trim()
-            .toLocaleLowerCase(
-              "es",
-            );
-
-        return sortedCandidates.filter(
-          (candidate) => {
-            const match =
-              matchByCandidateId.get(
-                candidate.id,
-              );
-
-            if (
-              !match
-            ) {
-              return false;
-            }
-
-            if (
-              filter ===
-                "new" &&
-              match.status !==
-                "new"
-            ) {
-              return false;
-            }
-
-            if (
-              filter ===
-                "existing" &&
-              match.status !==
-                "existing_managed" &&
-              match.status !==
-                "existing_legacy"
-            ) {
-              return false;
-            }
-
-            if (
-              filter ===
-                "review" &&
-              !isReviewStatus(
-                match.status,
-              )
-            ) {
-              return false;
-            }
-
-            if (
-              filter.startsWith(
-                "template:",
-              )
-            ) {
-              const templateId =
-                filter.slice(
-                  "template:".length,
-                );
-
-              if (
-                candidate.templateId !==
-                templateId
-              ) {
-                return false;
-              }
-            }
-
-            if (
-              !query
-            ) {
-              return true;
-            }
-
-            const baseSku =
-              getFirstTemplateVariant(
-                candidate.baseProduct,
-              )?.sku ??
-              "";
-
-            const monitorSku =
-              getFirstTemplateVariant(
-                candidate.monitor,
-              )?.sku ??
-              "";
-
-            return (
-              candidate.identity.title
-                .toLocaleLowerCase(
-                  "es",
-                )
-                .includes(
-                  query,
-                ) ||
-              candidate.identity.sku
-                .toLocaleLowerCase(
-                  "es",
-                )
-                .includes(
-                  query,
-                ) ||
-              candidate.templateName
-                .toLocaleLowerCase(
-                  "es",
-                )
-                .includes(
-                  query,
-                ) ||
-              baseSku
-                .toLocaleLowerCase(
-                  "es",
-                )
-                .includes(
-                  query,
-                ) ||
-              monitorSku
-                .toLocaleLowerCase(
-                  "es",
-                )
-                .includes(
-                  query,
-                )
-            );
-          },
-        );
-      },
-      [
-        sortedCandidates,
-        matchByCandidateId,
-        search,
-        filter,
-      ],
+  const allVisibleNewSelected =
+    visibleNewCandidateIds.length >
+      0 &&
+    visibleNewCandidateIds.every(
+      (candidateId) =>
+        selectedCandidateIds.has(
+          candidateId,
+        ),
     );
-
-  /* =======================================================
-     REVIEW: MULTI VARIANT
-  ======================================================= */
 
   const visibleMultiVariant =
-    useMemo(
-      () => {
-        if (
-          filter !==
-            "all" &&
-          filter !==
-            "review"
-        ) {
-          return [];
-        }
-
-        const query =
-          search
-            .trim()
-            .toLocaleLowerCase(
-              "es",
-            );
-
-        return state
+    view ===
+    "review"
+      ? state
           .multiVariantBaseProducts
           .filter(
-            (product) =>
-              !query ||
-              product.title
-                .toLocaleLowerCase(
-                  "es",
-                )
-                .includes(
-                  query,
-                ),
-          );
-      },
-      [
-        state
-          .multiVariantBaseProducts,
-        search,
-        filter,
-      ],
-    );
-
-  /* =======================================================
-     EXCLUDED
-  ======================================================= */
-
-  const visibleManualExcluded =
-    useMemo(
-      () => {
-        if (
-          filter !==
-          "excluded"
-        ) {
-          return [];
-        }
-
-        const query =
-          search
-            .trim()
-            .toLocaleLowerCase(
-              "es",
-            );
-
-        return state
-          .manuallyExcludedProducts
-          .filter(
             (product) => {
-              const sku =
-                getFirstTemplateVariant(
-                  product,
-                )?.sku ??
-                "";
+              const query =
+                search
+                  .trim()
+                  .toLocaleLowerCase(
+                    "es",
+                  );
 
               return (
                 !query ||
-                product.title
-                  .toLocaleLowerCase(
-                    "es",
-                  )
-                  .includes(
-                    query,
-                  ) ||
-                sku
+                product
+                  .title
                   .toLocaleLowerCase(
                     "es",
                   )
@@ -737,58 +1575,95 @@ export default function Bundles() {
                   )
               );
             },
-          );
-      },
-      [
-        state
-          .manuallyExcludedProducts,
-        search,
-        filter,
-      ],
-    );
+          )
+      : [];
 
-  const visibleAutomaticExcluded =
-    useMemo(
-      () => {
-        if (
-          filter !==
-          "excluded"
-        ) {
-          return [];
-        }
+  const excludedQuery =
+    search
+      .trim()
+      .toLocaleLowerCase(
+        "es",
+      );
 
-        const query =
-          search
-            .trim()
-            .toLocaleLowerCase(
-              "es",
-            );
-
-        return state
-          .automaticallyExcludedProducts
+  const visibleManualExcluded =
+    view ===
+    "excluded"
+      ? state
+          .manuallyExcludedProducts
           .filter(
             (product) =>
-              !query ||
-              product.title
+              !excludedQuery ||
+              product
+                .title
                 .toLocaleLowerCase(
                   "es",
                 )
                 .includes(
-                  query,
+                  excludedQuery,
+                ) ||
+              (
+                getFirstTemplateVariant(
+                  product,
+                )?.sku ??
+                ""
+              )
+                .toLocaleLowerCase(
+                  "es",
+                )
+                .includes(
+                  excludedQuery,
                 ),
-          );
-      },
-      [
-        state
-          .automaticallyExcludedProducts,
-        search,
-        filter,
-      ],
-    );
+          )
+      : [];
 
-  /* =======================================================
-     ERRORS
-  ======================================================= */
+  const visibleAutomaticExcluded =
+    view ===
+    "excluded"
+      ? state
+          .automaticallyExcludedProducts
+          .filter(
+            (product) =>
+              !excludedQuery ||
+              product
+                .title
+                .toLocaleLowerCase(
+                  "es",
+                )
+                .includes(
+                  excludedQuery,
+                ),
+          )
+      : [];
+
+  const detailCandidate =
+    detailCandidateId
+      ? state.candidates.find(
+          (candidate) =>
+            candidate.id ===
+            detailCandidateId,
+        ) ??
+        null
+      : null;
+
+  const detailMatch =
+    detailCandidate
+      ? matchByCandidateId.get(
+          detailCandidate.id,
+        ) ??
+        null
+      : null;
+
+  const detailPrice =
+    detailCandidate
+      ? calculateTemplateCandidatePrice(
+          detailCandidate,
+          data.runtime.priceConfig,
+        )
+      : null;
+
+  const detailDescription = detailCandidate
+    ? buildBundleProductContent(detailCandidate)
+    : null;
 
   const systemErrors =
     Array.from(
@@ -805,1227 +1680,1887 @@ export default function Bundles() {
 
   const working =
     fetcher.state !==
-    "idle";
+      "idle" ||
+    bulkRunning;
+
+  const toggleCandidateSelection =
+    (
+      candidateId:
+        string,
+    ) => {
+      if (
+        bulkRunning
+      ) {
+        return;
+      }
+
+      setSelectedCandidateIds(
+        (current) => {
+          const next =
+            new Set(
+              current,
+            );
+
+          if (
+            next.has(
+              candidateId,
+            )
+          ) {
+            next.delete(
+              candidateId,
+            );
+          } else {
+            next.add(
+              candidateId,
+            );
+          }
+
+          return next;
+        },
+      );
+    };
+
+  const toggleVisibleNewSelection =
+    () => {
+      if (
+        bulkRunning
+      ) {
+        return;
+      }
+
+      setSelectedCandidateIds(
+        (current) => {
+          const next =
+            new Set(
+              current,
+            );
+
+          for (
+            const candidateId
+            of visibleNewCandidateIds
+          ) {
+            if (
+              allVisibleNewSelected
+            ) {
+              next.delete(
+                candidateId,
+              );
+            } else {
+              next.add(
+                candidateId,
+              );
+            }
+          }
+
+          return next;
+        },
+      );
+    };
+
+  const startBulkCreation =
+    () => {
+      if (
+        bulkRunning ||
+        fetcher.state !== "idle"
+      ) {
+        return;
+      }
+
+      if (
+        selectedNewCandidateIds.length === 0
+      ) {
+        shopify.toast.show(
+          "Selecciona al menos una propuesta de Bundles por crear.",
+        );
+
+        return;
+      }
+
+      void shopify.modal.show(
+        "bundle-bulk-confirm-modal",
+      );
+    };
+
+  const confirmBulkCreation =
+    () => {
+      if (
+        bulkRunning ||
+        fetcher.state !== "idle"
+      ) {
+        return;
+      }
+
+      const queue =
+        selectedNewCandidateIds;
+
+      if (
+        queue.length === 0
+      ) {
+        void shopify.modal.hide(
+          "bundle-bulk-confirm-modal",
+        );
+
+        return;
+      }
+
+      void shopify.modal.hide(
+        "bundle-bulk-confirm-modal",
+      );
+
+      setBulkQueue(
+        queue,
+      );
+
+      setBulkResults(
+        [],
+      );
+
+      setBulkRunning(
+        true,
+      );
+
+      const firstCandidateId =
+        queue[0];
+
+      setBulkCurrentCandidateId(
+        firstCandidateId,
+      );
+
+      bulkFetcher.submit(
+        {
+          intent:
+            "create_draft",
+
+          candidateId:
+            firstCandidateId,
+
+          skipRevalidate:
+            "true",
+        },
+        {
+          method:
+            "post",
+        },
+      );
+    };
+
+  const failedBulkResults = bulkResults.filter(
+    (item) => !item.success,
+  );
+
+  const resultCount =
+    view ===
+    "excluded"
+      ? visibleManualExcluded.length +
+        visibleAutomaticExcluded.length
+      : filteredCandidates.length +
+        visibleMultiVariant.length;
 
   return (
-    <s-page heading="Bundles">
+    <s-page
+      heading="Bundles"
+      inlineSize="large"
+    >
 
       <style>{`
-        .csb-page,
-        .csb-page *,
-        .csb-page *::before,
-        .csb-page *::after {
-          box-sizing: border-box;
-        }
-
-        .csb-page {
-          max-width: 1450px;
-          margin: 0 auto;
-        }
-
-        .csb-title {
-          margin: 0 0 5px;
-          font-size: 24px;
-          font-weight: 700;
-          color: #303030;
-        }
-
-        .csb-description {
-          margin: 0 0 18px;
-          color: #616161;
-          font-size: 13px;
-        }
-
-        .csb-kpis {
-          display: grid;
-          grid-template-columns:
-            repeat(
-              6,
-              minmax(0, 1fr)
-            );
-          margin-bottom: 16px;
-          border: 1px solid #e3e3e3;
-          border-radius: 14px;
-          overflow: hidden;
-          background: #fff;
-        }
-
-        .csb-kpi {
-          min-width: 0;
-          padding: 17px;
-          border-right: 1px solid #ededed;
-        }
-
-        .csb-kpi:last-child {
-          border-right: 0;
-        }
-
-        .csb-kpi__label {
-          margin-bottom: 4px;
-          color: #616161;
-          font-size: 11px;
-        }
-
-        .csb-kpi__value {
-          color: #303030;
-          font-size: 23px;
-          font-weight: 700;
-        }
-
-        .csb-kpi--new {
-          background: #fbfefb;
-        }
-
-        .csb-kpi--warning {
-          background: #fffaf2;
-        }
-
-        .csb-kpi--excluded {
-          background: #fafafa;
-        }
-
-        .csb-price-status {
-          display: flex;
-          justify-content: space-between;
-          gap: 15px;
-          margin-bottom: 14px;
-          padding: 12px 14px;
-          border: 1px solid #e3e3e3;
-          border-radius: 11px;
-          background: #fafafa;
-          color: #616161;
-          font-size: 11px;
-        }
-
-        .csb-price-status strong {
-          color: #303030;
-        }
-
-        .csb-template-summary {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 7px;
-          margin-bottom: 14px;
-        }
-
-        .csb-template-summary__item {
-          padding: 7px 10px;
-          border: 1px solid #e2e2e2;
-          border-radius: 9px;
-          background: #fff;
-          color: #555;
-          font-size: 10.5px;
-        }
-
-        .csb-template-summary__item strong {
-          color: #303030;
-        }
-
-        .csb-error-banner {
-          margin-bottom: 14px;
-          padding: 13px 15px;
-          border: 1px solid #e6b7b7;
-          border-radius: 11px;
-          background: #fff5f5;
-          color: #8f2525;
-          font-size: 11.5px;
-          line-height: 1.45;
-        }
-
-        .csb-warning-banner {
-          margin-bottom: 14px;
-          padding: 13px 15px;
-          border: 1px solid #e7cea0;
-          border-radius: 11px;
-          background: #fffaf2;
-          color: #73510c;
-          font-size: 11px;
-          line-height: 1.5;
-        }
-
-        .csb-warning-banner ul {
-          margin: 7px 0 0;
-          padding-left: 18px;
-        }
-
-        .csb-toolbar {
-          display: flex;
-          justify-content: space-between;
-          gap: 12px;
-          margin-bottom: 14px;
-          padding: 11px;
-          border: 1px solid #e3e3e3;
-          border-radius: 12px;
-          background: #fff;
-        }
-
-        .csb-filters {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 5px;
-        }
-
-        .csb-filter {
-          border: 1px solid transparent;
-          border-radius: 8px;
-          padding: 6px 10px;
-          background: transparent;
-          color: #303030;
-          font: inherit;
-          font-size: 11px;
-          font-weight: 600;
-          cursor: pointer;
-        }
-
-        .csb-filter--active {
-          background: #f4f0ff;
-          border-color: #d0c3fa;
-          color: #5c35d5;
-        }
-
-        .csb-search {
-          width: 270px;
-          min-height: 35px;
-          padding: 6px 10px;
-          border: 1px solid #c9c9c9;
-          border-radius: 8px;
-          font: inherit;
-          font-size: 11.5px;
-        }
-
-        .csb-list {
+        .csb-native-page {
           display: flex;
           flex-direction: column;
-          gap: 9px;
+          gap: 12px;
+          padding-bottom: 24px;
         }
 
-        .csb-bundle {
+        .csb-native-view-scroll {
+          overflow-x: auto;
+          scrollbar-width: none;
+        }
+
+        .csb-native-view-scroll::-webkit-scrollbar {
+          display: none;
+        }
+
+        .csb-native-selection {
+          padding: 12px;
+          border-top: 1px solid #e1e3e5;
+          border-bottom: 1px solid #e1e3e5;
+          background: #f6f6f7;
+        }
+
+        .csb-native-selection-grid {
           display: grid;
-          grid-template-columns:
-            minmax(0, 2fr)
-            115px
-            125px
-            65px
-            120px
-            105px;
-          gap: 14px;
+          grid-template-columns: minmax(0, 1fr) auto;
+          gap: 12px;
           align-items: center;
-          padding: 15px 17px;
-          border: 1px solid #e3e3e3;
-          border-radius: 12px;
-          background: #fff;
         }
 
-        .csb-bundle--review {
-          border-color: #e7cea0;
-          background: #fffdf8;
+        .csb-native-bundle-title {
+          min-width: 0;
         }
 
-        .csb-bundle--legacy {
-          border-color: #d5c8f6;
-          background: #fcfaff;
-        }
-
-        .csb-bundle__title {
-          margin-bottom: 4px;
-          color: #303030;
-          font-size: 12.5px;
-          line-height: 1.4;
-          font-weight: 650;
-        }
-
-        .csb-bundle__sku {
+        .csb-native-bundle-secondary {
+          margin-top: 2px;
           color: #616161;
-          font-size: 10px;
-          font-family: monospace;
-        }
-
-        .csb-bundle__message {
-          margin-top: 5px;
-          color: #777;
-          font-size: 10.5px;
-          line-height: 1.4;
-        }
-
-        .csb-template-badge {
-          display: inline-flex;
-          margin-top: 7px;
-          padding: 3px 7px;
-          border-radius: 999px;
-          background: #f1ebff;
-          color: #6842a7;
-          font-size: 9.5px;
-          font-weight: 650;
-        }
-
-        .csb-existing-product {
-          margin-top: 5px;
-          color: #6842a7;
-          font-size: 10px;
-        }
-
-        .csb-value-label {
-          display: block;
-          margin-bottom: 3px;
-          color: #8a8a8a;
-          font-size: 9px;
-          text-transform: uppercase;
-        }
-
-        .csb-component-price {
-          color: #777;
-          font-size: 10.5px;
-          text-decoration: line-through;
-        }
-
-        .csb-final-price {
-          color: #303030;
-          font-size: 12.5px;
-          font-weight: 700;
-        }
-
-        .csb-saving {
-          margin-top: 3px;
-          color: #26733e;
-          font-size: 10px;
-          font-weight: 600;
-        }
-
-        .csb-status {
-          display: inline-flex;
-          justify-content: center;
-          padding: 5px 10px;
-          border-radius: 999px;
-          background: #ededed;
-          color: #555;
-          font-size: 10px;
-          font-weight: 650;
-          white-space: nowrap;
-        }
-
-        .csb-status--new {
-          background: #eaf8ee;
-          color: #26733e;
-        }
-
-        .csb-status--existing {
-          background: #eaf0ff;
-          color: #3850a2;
-        }
-
-        .csb-status--legacy {
-          background: #f1ebff;
-          color: #6842a7;
-        }
-
-        .csb-status--warning {
-          background: #fff2d8;
-          color: #835800;
-        }
-
-        .csb-status--error {
-          background: #fdeaea;
-          color: #a32828;
-        }
-
-        .csb-action-button {
-          width: 100%;
-          min-height: 32px;
-          padding: 5px 8px;
-          border: 1px solid #c9c9c9;
-          border-radius: 8px;
-          background: #fff;
-          color: #303030;
-          font: inherit;
-          font-size: 10.5px;
-          font-weight: 600;
-          cursor: pointer;
-        }
-
-        .csb-action-button:hover {
-          background: #f5f5f5;
-        }
-
-        .csb-action-button:disabled {
-          opacity: .5;
-          cursor: default;
-        }
-
-        .csb-excluded {
-          display: grid;
-          grid-template-columns:
-            minmax(0, 1fr)
-            170px
-            150px;
-          gap: 16px;
-          align-items: center;
-          padding: 15px 17px;
-          border: 1px solid #e3e3e3;
-          border-radius: 12px;
-          background: #fafafa;
-        }
-
-        .csb-notice {
-          margin-top: 16px;
-          padding: 14px;
-          border: 1px solid #e3e3e3;
-          border-radius: 12px;
-          background: #fafafa;
-          color: #616161;
-          font-size: 11.5px;
-          line-height: 1.5;
-        }
-
-        .csb-empty {
-          padding: 35px;
-          border: 1px dashed #c9c9c9;
-          border-radius: 12px;
-          color: #616161;
-          text-align: center;
           font-size: 12px;
+          line-height: 1.35;
         }
 
-        @media (max-width: 1100px) {
-          .csb-kpis {
-            grid-template-columns:
-              repeat(
-                3,
-                1fr
-              );
-          }
-
-          .csb-bundle {
-            grid-template-columns:
-              1fr
-              1fr
-              1fr;
-          }
+        .csb-native-warning {
+          margin-top: 4px;
+          color: #8a5a00;
+          font-size: 11px;
+          line-height: 1.35;
         }
 
-        @media (max-width: 700px) {
-          .csb-kpis {
-            grid-template-columns:
-              1fr
-              1fr;
+        .csb-native-statuses {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 4px;
+        }
+
+        @media (max-width: 760px) {
+          .csb-native-page {
+            gap: 10px;
+            padding-bottom: 16px;
           }
 
-          .csb-toolbar,
-          .csb-price-status {
-            flex-direction: column;
-          }
-
-          .csb-search {
-            width: 100%;
-          }
-
-          .csb-bundle,
-          .csb-excluded {
-            grid-template-columns:
-              1fr;
+          .csb-native-selection-grid {
+            grid-template-columns: 1fr;
           }
         }
       `}</style>
 
-      <div className="csb-page">
+      <div className="csb-native-page">
 
-        <h1 className="csb-title">
-          Bundles
-        </h1>
+        <s-section>
+          <s-stack gap="small">
 
-        <p className="csb-description">
-          Las propuestas ahora se generan desde las reglas configuradas en Plantillas.
-        </p>
+            <s-paragraph>
+              Revisa propuestas, estado del producto en Shopify y publicación en Tienda online.
+            </s-paragraph>
 
-        {/* KPIS */}
+            <s-stack
+              direction="inline"
+              gap="small"
+              alignItems="center"
+            >
+              <s-text tone="neutral">
+                Canal
+              </s-text>
 
-        <div className="csb-kpis">
+              <s-badge tone="info">
+                Tienda online
+              </s-badge>
 
-          <div className="csb-kpi">
+              <s-text tone="neutral">
+                Precio
+              </s-text>
 
-            <div className="csb-kpi__label">
-              PC elegibles
-            </div>
+              <s-text>
+                {data.runtime.priceConfig.mode ===
+                    "percentage"
+                      ? `${data.runtime.priceConfig.percentage}% sobre el PC`
+                      : data.runtime.priceConfig.mode ===
+                          "fixed"
+                        ? `${formatPrice(
+                            data.runtime.priceConfig.fixedAmount,
+                            data.catalog.currencyCode,
+                          )} sobre el PC`
+                        : "Sin descuento"}
+              </s-text>
+            </s-stack>
 
-            <div className="csb-kpi__value">
-              {
-                state
-                  .eligibleBaseProducts
-                  .length
-              }
-            </div>
-
-          </div>
-
-          <div className="csb-kpi">
-
-            <div className="csb-kpi__label">
-              Bundles posibles
-            </div>
-
-            <div className="csb-kpi__value">
-              {
-                state
-                  .candidates
-                  .length
-              }
-            </div>
-
-          </div>
-
-          <div className="csb-kpi csb-kpi--new">
-
-            <div className="csb-kpi__label">
-              Nuevos
-            </div>
-
-            <div className="csb-kpi__value">
-              {
-                newCount
-              }
-            </div>
-
-          </div>
-
-          <div className="csb-kpi">
-
-            <div className="csb-kpi__label">
-              Ya existentes
-            </div>
-
-            <div className="csb-kpi__value">
-              {
-                existingCount
-              }
-            </div>
-
-          </div>
-
-          <div
-            className={
-              reviewCount >
-              0
-                ? "csb-kpi csb-kpi--warning"
-                : "csb-kpi"
-            }
-          >
-
-            <div className="csb-kpi__label">
-              Revisar
-            </div>
-
-            <div className="csb-kpi__value">
-              {
-                reviewCount
-              }
-            </div>
-
-          </div>
-
-          <div className="csb-kpi csb-kpi--excluded">
-
-            <div className="csb-kpi__label">
-              Excluidos
-            </div>
-
-            <div className="csb-kpi__value">
-              {
-                excludedCount
-              }
-            </div>
-
-          </div>
-
-        </div>
-
-        {/* PRICE */}
-
-        <div className="csb-price-status">
-
-          <span>
-            Precio comercial
-          </span>
-
-          <strong>
-
-            {data.runtime.priceConfig.mode ===
-            "percentage"
-              ? `${data.runtime.priceConfig.percentage}% de descuento sobre el PC`
-              : data.runtime.priceConfig.mode ===
-                  "fixed"
-                ? `${formatPrice(
-                    data.runtime.priceConfig.fixedAmount,
-                    data.catalog.currencyCode,
-                  )} de descuento sobre el PC`
-                : "Sin descuento"}
-
-            {data.runtime.priceConfig
-              .rounding ===
-            "x900"
-              ? " · Termina en $900"
-              : ""}
-
-          </strong>
-
-        </div>
-
-        {/* TEMPLATE SUMMARY */}
-
-        <div className="csb-template-summary">
-
-          {state.summaries
-            .filter(
-              (summary) =>
-                summary.enabled,
-            )
-            .map(
-              (summary) => (
-                <div
-                  className="csb-template-summary__item"
-                  key={
-                    summary.templateId
-                  }
-                >
-                  <strong>
-                    {
-                      summary.templateName
-                    }
-                  </strong>
-
-                  {" · "}
-
-                  {
-                    summary.candidatesCount
-                  }{" "}
-
-                  propuesta(s)
-
-                </div>
-              ),
-            )}
-
-        </div>
-
-        {/* API ERRORS */}
+          </s-stack>
+        </s-section>
 
         {systemErrors.length >
           0 && (
-          <div className="csb-error-banner">
-
-            <strong>
-              La lectura del generador no pudo completarse correctamente.
-            </strong>
-
-            <br />
-
-            {
-              systemErrors.join(
-                " | ",
-              )
-            }
-
-          </div>
+          <s-banner
+            heading="No fue posible completar toda la lectura de Shopify"
+            tone="critical"
+          >
+            {systemErrors.join(
+              " · ",
+            )}
+          </s-banner>
         )}
 
-        {/* TEMPLATE ISSUES */}
+        {readinessUnavailable && (
+          <s-banner
+            heading="No se pudo validar la información de los componentes"
+            tone="critical"
+          >
+            <s-paragraph>
+              Se bloqueó la creación preventiva de Bundles hasta comprobar el catálogo.
+              {data.readiness.errors.join(" · ")}
+            </s-paragraph>
+          </s-banner>
+        )}
 
         {state.issues.length >
           0 && (
-          <div className="csb-warning-banner">
-
-            <strong>
-              Revisa la configuración de Plantillas:
-            </strong>
-
-            <ul>
-
-              {state.issues.map(
-                (issue) => (
-                  <li key={issue}>
-                    {issue}
-                  </li>
-                ),
-              )}
-
-            </ul>
-
-          </div>
+          <s-banner
+            heading="Hay configuraciones que requieren revisión"
+            tone="warning"
+          >
+            {state.issues.join(
+              " · ",
+            )}
+          </s-banner>
         )}
 
-        {/* TOOLBAR */}
+        <s-section
+          padding="none"
+          accessibilityLabel="Gestión de Bundles"
+        >
 
-        <div className="csb-toolbar">
+          <s-box padding="small">
 
-          <div className="csb-filters">
+            <div className="csb-native-view-scroll">
 
-            <button
-              type="button"
-              className={
-                filter ===
-                "all"
-                  ? "csb-filter csb-filter--active"
-                  : "csb-filter"
-              }
-              onClick={() =>
-                setFilter(
-                  "all",
-                )
-              }
-            >
-              Todos
-            </button>
+              <s-stack
+                direction="inline"
+                gap="small"
+              >
 
-            <button
-              type="button"
-              className={
-                filter ===
-                "new"
-                  ? "csb-filter csb-filter--active"
-                  : "csb-filter"
-              }
-              onClick={() =>
-                setFilter(
-                  "new",
-                )
-              }
-            >
-              Nuevos ({newCount})
-            </button>
-
-            {state.summaries
-              .filter(
-                (summary) =>
-                  summary.enabled,
-              )
-              .map(
-                (summary) => {
-                  const value =
-                    `template:${summary.templateId}` as BundleFilter;
-
-                  return (
-                    <button
-                      type="button"
-                      key={
-                        summary.templateId
-                      }
-                      className={
-                        filter ===
+                {([
+                  [
+                    "create",
+                    "Por crear",
+                    createCount,
+                  ],
+                  [
+                    "published",
+                    "Publicados",
+                    publishedCount,
+                  ],
+                  [
+                    "unpublished",
+                    "Sin publicar",
+                    unpublishedCount,
+                  ],
+                  [
+                    "review",
+                    "Revisar",
+                    reviewCount,
+                  ],
+                  [
+                    "excluded",
+                    "Excluidos",
+                    excludedCount,
+                  ],
+                ] as Array<
+                  [
+                    BundleView,
+                    string,
+                    number,
+                  ]
+                >).map(
+                  (
+                    [
+                      value,
+                      label,
+                      count,
+                    ],
+                  ) => (
+                    <s-button
+                      key={value}
+                      variant={
+                        view ===
                         value
-                          ? "csb-filter csb-filter--active"
-                          : "csb-filter"
+                          ? "primary"
+                          : "secondary"
                       }
                       onClick={() =>
-                        setFilter(
+                        setView(
                           value,
                         )
                       }
                     >
-                      {
-                        summary.templateName
-                      }{" "}
-                      ({
-                        summary.candidatesCount
-                      })
-                    </button>
-                  );
-                },
-              )}
+                      {label}{" "}
+                      {count}
+                    </s-button>
+                  ),
+                )}
 
-            <button
-              type="button"
-              className={
-                filter ===
-                "existing"
-                  ? "csb-filter csb-filter--active"
-                  : "csb-filter"
-              }
-              onClick={() =>
-                setFilter(
-                  "existing",
-                )
-              }
-            >
-              Ya existen ({existingCount})
-            </button>
+              </s-stack>
 
-            <button
-              type="button"
-              className={
-                filter ===
-                "review"
-                  ? "csb-filter csb-filter--active"
-                  : "csb-filter"
-              }
-              onClick={() =>
-                setFilter(
-                  "review",
-                )
-              }
-            >
-              Revisar ({reviewCount})
-            </button>
+            </div>
 
-            <button
-              type="button"
-              className={
-                filter ===
-                "excluded"
-                  ? "csb-filter csb-filter--active"
-                  : "csb-filter"
-              }
-              onClick={() =>
-                setFilter(
-                  "excluded",
-                )
-              }
-            >
-              Excluidos ({excludedCount})
-            </button>
+          </s-box>
 
-          </div>
+          {selectedNewCandidateIds.length >
+            0 && (
+            <div className="csb-native-selection">
 
-          <input
-            className="csb-search"
-            type="search"
-            placeholder="Buscar producto o SKU"
-            value={
-              search
-            }
-            onChange={(event) =>
-              setSearch(
-                event.target.value,
-              )
-            }
-          />
+              <div className="csb-native-selection-grid">
 
-        </div>
+                <s-text>
+                  {
+                    selectedNewCandidateIds.length
+                  }{" "}
+                  propuesta(s) seleccionada(s)
+                </s-text>
 
-        {/* LIST */}
-
-        <div className="csb-list">
-
-          {visibleCandidates.map(
-            (candidate) => {
-              const match =
-                matchByCandidateId.get(
-                  candidate.id,
-                );
-
-              if (
-                !match
-              ) {
-                return null;
-              }
-
-              const price =
-                calculateTemplateCandidatePrice(
-                  candidate,
-                  data.runtime.priceConfig,
-                );
-
-              const needsReview =
-                isReviewStatus(
-                  match.status,
-                );
-
-              const isLegacy =
-                match.status ===
-                "existing_legacy";
-
-              let className =
-                "csb-bundle";
-
-              if (
-                needsReview
-              ) {
-                className +=
-                  " csb-bundle--review";
-              }
-
-              if (
-                isLegacy
-              ) {
-                className +=
-                  " csb-bundle--legacy";
-              }
-
-              return (
-                <div
-                  className={
-                    className
+                <s-button
+                  variant="primary"
+                  disabled={
+                    working
                   }
-                  key={
-                    candidate.id
+                  onClick={
+                    startBulkCreation
                   }
                 >
+                  {bulkRunning
+                    ? "Creando borradores..."
+                    : `Crear borradores (${selectedNewCandidateIds.length})`}
+                </s-button>
 
-                  {/* PRODUCT */}
+              </div>
 
-                  <div>
+            </div>
+          )}
 
-                    <div className="csb-bundle__title">
-                      {
-                        candidate
-                          .identity
-                          .title
-                      }
-                    </div>
+          {(bulkRunning || bulkResults.length > 0) && (
+            <s-banner
+              tone={
+                bulkRunning
+                  ? "info"
+                  : failedBulkResults.length > 0
+                    ? failedBulkResults.some((item) => item.partial)
+                      ? "warning"
+                      : "critical"
+                    : "success"
+              }
+              heading={
+                bulkRunning
+                  ? "Creando Bundles"
+                  : failedBulkResults.length > 0
+                    ? "Creación detenida: requiere revisión"
+                    : "Bundles creados correctamente"
+              }
+            >
+              <s-stack gap="small">
+                <s-paragraph>
+                  {bulkRunning
+                    ? `Procesando ${bulkResults.length + 1} de ${bulkQueue.length}. Cada propuesta se valida nuevamente antes de crearse.`
+                    : `${bulkResults.filter((item) => item.success).length} creados · ${bulkResults.filter((item) => !item.success && !item.partial).length} omitidos · ${bulkResults.filter((item) => !item.success && item.partial).length} para revisar.`}
+                </s-paragraph>
 
-                    <div className="csb-bundle__sku">
-                      {
-                        candidate
-                          .identity
-                          .sku
-                      }
-                    </div>
-
-                    <div className="csb-bundle__message">
-                      {
-                        match.message
-                      }
-                    </div>
-
-                    <span className="csb-template-badge">
-                      {
-                        candidate
-                          .templateName
-                      }
-                    </span>
-
-                    {match
-                      .existingProduct && (
-                      <div className="csb-existing-product">
-
-                        Shopify:{" "}
-
-                        <strong>
-                          {
-                            match
-                              .existingProduct
-                              .title
-                          }
-                        </strong>
-
-                      </div>
-                    )}
-
-                  </div>
-
-                  {/* INDIVIDUAL */}
-
-                  <div>
-
-                    <span className="csb-value-label">
-                      Individual
-                    </span>
-
-                    <div className="csb-component-price">
-                      {formatPrice(
-                        price.componentPrice,
-                        data.catalog.currencyCode,
-                      )}
-                    </div>
-
-                  </div>
-
-                  {/* BUNDLE */}
-
-                  <div>
-
-                    <span className="csb-value-label">
-                      Bundle
-                    </span>
-
-                    <div className="csb-final-price">
-                      {formatPrice(
-                        price.finalPrice,
-                        data.catalog.currencyCode,
-                      )}
-                    </div>
-
-                    {price.savings >
-                      0 && (
-                      <div className="csb-saving">
-
-                        Ahorra{" "}
-
-                        {formatPrice(
-                          price.savings,
-                          data.catalog.currencyCode,
+                {!bulkRunning &&
+                  failedBulkResults.map((item) => {
+                    const candidate = state.candidates.find(
+                      (entry) => entry.id === item.candidateId,
+                    );
+                    return (
+                      <s-stack key={item.candidateId} gap="small">
+                        <s-text>
+                          <strong>
+                            {candidate?.identity.title ?? "Propuesta"}
+                          </strong>
+                        </s-text>
+                        <s-paragraph>
+                          {item.message}
+                        </s-paragraph>
+                        {item.partial && (
+                          <s-text tone="warning">
+                            Verifica primero si existe el producto en Shopify. No lo vuelvas a crear.
+                          </s-text>
                         )}
-
-                      </div>
-                    )}
-
-                  </div>
-
-                  {/* STOCK */}
-
-                  <div>
-
-                    <span className="csb-value-label">
-                      Stock
-                    </span>
-
-                    {
-                      getTemplateCandidateStock(
-                        candidate,
-                      )
-                    }
-
-                  </div>
-
-                  {/* STATUS */}
-
-                  <div>
-
-                    <span
-                      className={
-                        getStatusClass(
-                          match.status,
-                        )
-                      }
-                    >
-                      {
-                        getStatusLabel(
-                          match.status,
-                        )
-                      }
-                    </span>
-
-                  </div>
-
-                  {/* EXCLUDE */}
-
-                  <div>
-
-                    {match.status ===
-                      "new" && (
-                      <fetcher.Form method="post">
-
-                        <input
-                          type="hidden"
-                          name="intent"
-                          value="exclude"
-                        />
-
-                        <input
-                          type="hidden"
-                          name="productId"
-                          value={
-                            candidate
-                              .baseProduct
-                              .id
-                          }
-                        />
-
-                        <button
-                          className="csb-action-button"
-                          type="submit"
-                          disabled={
-                            working
-                          }
-                        >
-                          Excluir PC
-                        </button>
-
-                      </fetcher.Form>
-                    )}
-
-                  </div>
-
-                </div>
-              );
-            },
+                      </s-stack>
+                    );
+                  })}
+              </s-stack>
+            </s-banner>
           )}
 
-          {/* MULTI VARIANT */}
-
-          {visibleMultiVariant.map(
-            (product) => (
-              <div
-                className="csb-bundle csb-bundle--review"
-                key={
-                  product.id
-                }
-              >
-
-                <div>
-
-                  <div className="csb-bundle__title">
-                    {
-                      product.title
-                    }
-                  </div>
-
-                  <div className="csb-bundle__message">
-                    Tiene múltiples variantes. La creación automática permanece bloqueada por seguridad.
-                  </div>
-
-                </div>
-
-                <div />
-                <div />
-
-                <div>
-                  {
-                    product.totalInventory
-                  }
-                </div>
-
-                <div>
-
-                  <span className="csb-status csb-status--warning">
-                    Varias variantes
-                  </span>
-
-                </div>
-
-                <div />
-
-              </div>
-            ),
-          )}
-
-          {/* MANUAL EXCLUDED */}
-
-          {visibleManualExcluded.map(
-            (product) => (
-              <div
-                className="csb-excluded"
-                key={
-                  product.id
-                }
-              >
-
-                <div>
-
-                  <div className="csb-bundle__title">
-                    {
-                      product.title
-                    }
-                  </div>
-
-                  <div className="csb-bundle__sku">
-                    {
-                      getFirstTemplateVariant(
-                        product,
-                      )?.sku ??
-                      "Sin SKU"
-                    }
-                  </div>
-
-                  <div className="csb-bundle__message">
-                    Exclusión manual. Este PC no participa en ninguna plantilla.
-                  </div>
-
-                </div>
-
-                <span className="csb-status csb-status--warning">
-                  Excluido manual
-                </span>
-
-                <fetcher.Form method="post">
-
-                  <input
-                    type="hidden"
-                    name="intent"
-                    value="include"
-                  />
-
-                  <input
-                    type="hidden"
-                    name="productId"
-                    value={
-                      product.id
-                    }
-                  />
-
-                  <button
-                    className="csb-action-button"
-                    type="submit"
-                    disabled={
-                      working
-                    }
-                  >
-                    Incluir nuevamente
-                  </button>
-
-                </fetcher.Form>
-
-              </div>
-            ),
-          )}
-
-          {/* AUTOMATIC EXCLUDED */}
-
-          {visibleAutomaticExcluded.map(
-            (product) => (
-              <div
-                className="csb-excluded"
-                key={
-                  product.id
-                }
-              >
-
-                <div>
-
-                  <div className="csb-bundle__title">
-                    {
-                      product.title
-                    }
-                  </div>
-
-                  <div className="csb-bundle__message">
-                    Los productos “¡Arma a tu medida!” permanecen excluidos automáticamente durante esta migración.
-                  </div>
-
-                </div>
-
-                <span className="csb-status">
-                  Automático
-                </span>
-
-                <div />
-
-              </div>
-            ),
-          )}
-
-          {/* EMPTY */}
-
-          {visibleCandidates.length ===
-            0 &&
-            visibleMultiVariant.length ===
-              0 &&
-            visibleManualExcluded.length ===
-              0 &&
-            visibleAutomaticExcluded.length ===
-              0 && (
-              <div className="csb-empty">
-                No hay productos para este filtro.
-              </div>
+          {fetcher.data?.success === false &&
+            fetcher.data?.message && (
+              <s-banner heading="La acción no se completó" tone="critical">
+                <s-paragraph>{fetcher.data.message}</s-paragraph>
+              </s-banner>
             )}
 
-        </div>
+          {view !==
+            "excluded" ? (
+            <s-table
+              paginate={
+                filteredCandidates.length >
+                PAGE_SIZE
+              }
+              hasPreviousPage={
+                page >
+                1
+              }
+              hasNextPage={
+                page <
+                totalPages
+              }
+              onPreviousPage={() =>
+                setPage(
+                  (
+                    current,
+                  ) =>
+                    Math.max(
+                      1,
+                      current -
+                        1,
+                    ),
+                )
+              }
+              onNextPage={() =>
+                setPage(
+                  (
+                    current,
+                  ) =>
+                    Math.min(
+                      totalPages,
+                      current +
+                        1,
+                    ),
+                )
+              }
+             >
 
-        <div className="csb-notice">
+              <s-query-container slot="filters">
 
-          <strong>
-            Generador conectado a Plantillas.
-          </strong>
+                <s-grid
+                  gridTemplateColumns="@container (inline-size > 760px) minmax(0, 1fr) minmax(190px, 250px) minmax(170px, 220px), 1fr"
+                  gap="small"
+                >
 
-          {" "}
+                  <s-text-field
+                    label="Buscar Bundles"
+                    labelAccessibilityVisibility="exclusive"
+                    icon="search"
+                    placeholder="Buscar por modelo o SKU"
+                    value={
+                      search
+                    }
+                    onInput={(event) =>
+                      setSearch(
+                        event.currentTarget.value,
+                      )
+                    }
+                  />
 
-          Cambiar condiciones, tipos de producto, metacampos, prefijos, sufijos, SKU, proveedor o tipo de producto generado en Plantillas ahora modifica las propuestas de esta pantalla sin editar el motor.
+                  <s-select
+                    label="Tipo de Bundles"
+                    labelAccessibilityVisibility="exclusive"
+                    value={
+                      templateFilter
+                    }
+                    onChange={(event) =>
+                      setTemplateFilter(
+                        event.currentTarget.value,
+                      )
+                    }
+                  >
+                    <s-option value="all">
+                      Todos los tipos de Bundles
+                    </s-option>
 
-          <br />
-          <br />
+                    {state.summaries
+                      .filter(
+                        (summary) =>
+                          summary.enabled,
+                      )
+                      .map(
+                        (summary) => (
+                          <s-option
+                            key={
+                              summary.templateId
+                            }
+                            value={
+                              summary.templateId
+                            }
+                          >
+                            {
+                              summary.templateName
+                            }
+                          </s-option>
+                        ),
+                      )}
+                  </s-select>
 
-          La creación real sigue desactivada mientras validamos esta migración.
+                  <s-select
+                    label="Ordenar Bundles"
+                    labelAccessibilityVisibility="exclusive"
+                    value={
+                      sortMode
+                    }
+                    onChange={(event) =>
+                      setSortMode(
+                        event.currentTarget
+                          .value as BundleSort,
+                      )
+                    }
+                  >
+                    <s-option value="stock_desc">
+                      Mayor disponibilidad
+                    </s-option>
+                    <s-option value="price_asc">
+                      Menor precio
+                    </s-option>
+                    <s-option value="savings_desc">
+                      Mayor ahorro
+                    </s-option>
+                  </s-select>
 
-        </div>
+                </s-grid>
+
+              </s-query-container>
+
+              <s-table-header-row>
+
+                <s-table-header listSlot="primary">
+                  {view ===
+                    "create" &&
+                    visibleNewCandidateIds.length >
+                      0 ? (
+                    <s-stack
+                      direction="inline"
+                      gap="small"
+                      alignItems="center"
+                    >
+                      <s-checkbox
+                        checked={
+                          allVisibleNewSelected
+                        }
+                        onChange={
+                          toggleVisibleNewSelection
+                        }
+                        disabled={
+                          working
+                        }
+                        accessibilityLabel="Seleccionar propuestas visibles"
+                      />
+                      <s-text>
+                        Bundles
+                      </s-text>
+                    </s-stack>
+                  ) : (
+                    "Bundles"
+                  )}
+                </s-table-header>
+
+                <s-table-header
+                  listSlot="labeled"
+                  format="currency"
+                >
+                  Precio
+                </s-table-header>
+
+                <s-table-header
+                  listSlot="labeled"
+                  format="currency"
+                >
+                  Ahorro
+                </s-table-header>
+
+                <s-table-header
+                  listSlot="labeled"
+                  format="numeric"
+                >
+                  Disponibles
+                </s-table-header>
+
+                <s-table-header listSlot="inline">
+                  Estado
+                </s-table-header>
+
+                <s-table-header listSlot="secondary">
+                  Acción
+                </s-table-header>
+
+              </s-table-header-row>
+
+              <s-table-body>
+
+                {pagedCandidates.map(
+                  (candidate) => {
+                    const match =
+                      matchByCandidateId.get(
+                        candidate.id,
+                      );
+
+                    if (
+                      !match
+                    ) {
+                      return null;
+                    }
+
+                    const price =
+                      calculateTemplateCandidatePrice(
+                        candidate,
+                        data.runtime.priceConfig,
+                      );
+
+                    const selected =
+                      selectedCandidateIds.has(
+                        candidate.id,
+                      );
+
+                    return (
+                      <s-table-row
+                        key={
+                          candidate.id
+                        }
+                      >
+
+                        <s-table-cell>
+
+                          <s-stack
+                            direction="inline"
+                            gap="small"
+                            alignItems="center"
+                          >
+
+                            {isCandidateReady(candidate.id) && (
+                              <s-checkbox
+                                checked={
+                                  selected
+                                }
+                                disabled={
+                                  working
+                                }
+                                onChange={() =>
+                                  toggleCandidateSelection(
+                                    candidate.id,
+                                  )
+                                }
+                                accessibilityLabel="Seleccionar propuesta de Bundles"
+                              />
+                            )}
+
+                            <div className="csb-native-bundle-title">
+
+                              <s-text>
+                                <strong>
+                                  {match.existingProduct?.title || candidate.identity.title}
+                                </strong>
+                              </s-text>
+
+                              <div className="csb-native-bundle-secondary">
+                                SKU: {match.existingProduct?.sku || candidate.identity.sku}
+                                {" · "}
+                                PC + monitor + teclado y mouse
+                                {candidate.wifiAdapter ? " + adaptador Wi-Fi" : ""}
+                              </div>
+
+                              {isReviewStatus(match.status) && (
+                                <div className="csb-native-warning">
+                                  {match.message}
+                                </div>
+                              )}
+
+                              {match.status === "new" &&
+                                needsComponentReview(candidate.id) && (
+                                  <div className="csb-native-warning">
+                                    {readinessUnavailable
+                                      ? "No fue posible validar los componentes."
+                                      : (readinessByCandidateId.get(candidate.id) ?? [])
+                                          .map((issue) => issue.message)
+                                          .join(" · ")}
+                                    {" "}
+                                    <s-link href="/app/problems?filter=component_data">
+                                      Ver en Productos con problemas
+                                    </s-link>
+                                  </div>
+                                )}
+
+                            </div>
+
+                          </s-stack>
+
+                        </s-table-cell>
+
+                        <s-table-cell>
+                          {formatPrice(
+                            price.finalPrice,
+                            data.catalog.currencyCode,
+                          )}
+                        </s-table-cell>
+
+                        <s-table-cell>
+                          {price.savings >
+                            0
+                            ? formatPrice(
+                                price.savings,
+                                data.catalog.currencyCode,
+                              )
+                            : "—"}
+                        </s-table-cell>
+
+                        <s-table-cell>
+                          {
+                            getTemplateCandidateStock(
+                              candidate,
+                            )
+                          }
+                        </s-table-cell>
+
+                        <s-table-cell>
+
+                          {isExistingStatus(
+                            match.status,
+                          ) &&
+                          match.existingProduct ? (
+                            <div className="csb-native-statuses">
+
+                              <s-badge
+                                tone={
+                                  getProductStatusTone(
+                                    match
+                                      .existingProduct
+                                      .status,
+                                  )
+                                }
+                              >
+                                {
+                                  getProductStatusLabel(
+                                    match
+                                      .existingProduct
+                                      .status,
+                                  )
+                                }
+                              </s-badge>
+
+                              <s-badge
+                                tone={
+                                  match
+                                    .existingProduct
+                                    .publishedAt
+                                    ? "success"
+                                    : "neutral"
+                                }
+                              >
+                                {match
+                                  .existingProduct
+                                  .publishedAt
+                                  ? "Tienda online"
+                                  : "Sin publicar"}
+                              </s-badge>
+
+                            </div>
+                          ) : needsCandidateReview(candidate.id) &&
+                            match.status === "new" ? (
+                            <s-badge tone="warning">Faltan datos</s-badge>
+                          ) : (
+                            <s-badge
+                              tone={
+                                getWorkflowStatusTone(
+                                  match.status,
+                                  match.existingProduct?.publishedAt,
+                                )
+                              }
+                            >
+                              {getWorkflowStatusLabel(
+                                match.status,
+                                match.existingProduct?.publishedAt,
+                              )}
+                            </s-badge>
+                          )}
+
+                        </s-table-cell>
+
+                        <s-table-cell>
+
+                          <s-button
+                            variant="tertiary"
+                            onClick={() => {
+                              setDetailCandidateId(
+                                candidate.id,
+                              );
+
+                              shopify.modal.show(
+                                "bundle-detail-modal",
+                              );
+                            }}
+                          >
+                            Ver detalle
+                          </s-button>
+
+                        </s-table-cell>
+
+                      </s-table-row>
+                    );
+                  },
+                )}
+
+                {view ===
+                  "review" &&
+                  visibleMultiVariant.map(
+                    (product) => (
+                      <s-table-row
+                        key={
+                          product.id
+                        }
+                      >
+
+                        <s-table-cell>
+
+                          <s-stack gap="small">
+
+                            <s-text>
+                              {
+                                product.title
+                              }
+                            </s-text>
+
+                            <s-text tone="warning">
+                              Tiene múltiples variantes. La creación automática permanece bloqueada.
+                            </s-text>
+
+                          </s-stack>
+
+                        </s-table-cell>
+
+                        <s-table-cell>
+                          —
+                        </s-table-cell>
+
+                        <s-table-cell>
+                          —
+                        </s-table-cell>
+
+                        <s-table-cell>
+                          {
+                            product.totalInventory
+                          }
+                        </s-table-cell>
+
+                        <s-table-cell>
+                          <s-badge tone="warning">
+                            Varias variantes
+                          </s-badge>
+                        </s-table-cell>
+
+                        <s-table-cell />
+
+                      </s-table-row>
+                    ),
+                  )}
+
+              </s-table-body>
+
+            </s-table>
+          ) : (
+            <s-table>
+
+              <s-text-field
+                slot="filters"
+                label="Buscar productos excluidos"
+                labelAccessibilityVisibility="exclusive"
+                icon="search"
+                placeholder="Buscar por producto o SKU"
+                value={
+                  search
+                }
+                onInput={(event) =>
+                  setSearch(
+                    event.currentTarget.value,
+                  )
+                }
+              />
+
+              <s-table-header-row>
+
+                <s-table-header listSlot="primary">
+                  Producto
+                </s-table-header>
+
+                <s-table-header
+                  listSlot="labeled"
+                  format="numeric"
+                >
+                  Stock
+                </s-table-header>
+
+                <s-table-header listSlot="inline">
+                  Estado
+                </s-table-header>
+
+                <s-table-header listSlot="secondary">
+                  Acción
+                </s-table-header>
+
+              </s-table-header-row>
+
+              <s-table-body>
+
+                {visibleManualExcluded.map(
+                  (product) => (
+                    <s-table-row
+                      key={
+                        product.id
+                      }
+                    >
+
+                      <s-table-cell>
+
+                        <s-stack gap="small">
+
+                          <s-text>
+                            {
+                              product.title
+                            }
+                          </s-text>
+
+                          <s-text tone="neutral">
+                            {
+                              getFirstTemplateVariant(
+                                product,
+                              )?.sku ??
+                              "Sin SKU"
+                            }
+                          </s-text>
+
+                        </s-stack>
+
+                      </s-table-cell>
+
+                      <s-table-cell>
+                        {
+                          product.totalInventory
+                        }
+                      </s-table-cell>
+
+                      <s-table-cell>
+                        <s-badge tone="warning">
+                          Excluido manual
+                        </s-badge>
+                      </s-table-cell>
+
+                      <s-table-cell>
+
+                        <fetcher.Form method="post">
+
+                          <input
+                            type="hidden"
+                            name="intent"
+                            value="include"
+                          />
+
+                          <input
+                            type="hidden"
+                            name="productId"
+                            value={
+                              product.id
+                            }
+                          />
+
+                          <s-button
+                            type="submit"
+                            variant="tertiary"
+                            disabled={
+                              working
+                            }
+                          >
+                            Incluir
+                          </s-button>
+
+                        </fetcher.Form>
+
+                      </s-table-cell>
+
+                    </s-table-row>
+                  ),
+                )}
+
+                {visibleAutomaticExcluded.map(
+                  (product) => (
+                    <s-table-row
+                      key={
+                        product.id
+                      }
+                    >
+
+                      <s-table-cell>
+
+                        <s-stack gap="small">
+
+                          <s-text>
+                            {
+                              product.title
+                            }
+                          </s-text>
+
+                          <s-text tone="neutral">
+                            Exclusión automática por producto “Arma a tu medida”.
+                          </s-text>
+
+                        </s-stack>
+
+                      </s-table-cell>
+
+                      <s-table-cell>
+                        {
+                          product.totalInventory
+                        }
+                      </s-table-cell>
+
+                      <s-table-cell>
+                        <s-badge tone="neutral">
+                          Automático
+                        </s-badge>
+                      </s-table-cell>
+
+                      <s-table-cell />
+
+                    </s-table-row>
+                  ),
+                )}
+
+              </s-table-body>
+
+            </s-table>
+          )}
+
+          {resultCount ===
+            0 && (
+            <s-box padding="large">
+
+              <s-stack
+                alignItems="center"
+                gap="small"
+              >
+
+                <s-text>
+                  No hay resultados para esta vista.
+                </s-text>
+
+              </s-stack>
+
+            </s-box>
+          )}
+
+          <s-box padding="small">
+
+            <s-text tone="neutral">
+              {resultCount} resultado(s)
+              {view ===
+                "create"
+                ? " · Propuestas pendientes de creación"
+                : ""}
+            </s-text>
+
+          </s-box>
+
+        </s-section>
 
       </div>
+
+      <s-modal
+        id="bundle-bulk-confirm-modal"
+        heading="Crear Bundles como borradores"
+        accessibilityLabel="Confirmar creación de Bundles"
+        size="small"
+      >
+        <s-stack gap="base">
+          <s-paragraph>
+            Se crearán {selectedNewCandidateIds.length} Bundles, uno por uno.
+            Cada propuesta se validará nuevamente antes de crearla.
+          </s-paragraph>
+
+          <s-paragraph>
+            Los productos quedarán como borradores y no se publicarán en
+            Tienda online.
+          </s-paragraph>
+        </s-stack>
+
+        <s-button
+          slot="secondary-actions"
+          variant="secondary"
+          commandFor="bundle-bulk-confirm-modal"
+          command="--hide"
+        >
+          Cancelar
+        </s-button>
+
+        <s-button
+          slot="primary-action"
+          variant="primary"
+          disabled={bulkRunning || fetcher.state !== "idle"}
+          onClick={confirmBulkCreation}
+        >
+          Crear borradores ({selectedNewCandidateIds.length})
+        </s-button>
+      </s-modal>
+
+      <s-modal
+        id="bundle-publish-confirm-modal"
+        heading="Confirmar publicación"
+        accessibilityLabel="Confirmar publicación de Bundles"
+        size="small"
+      >
+        <s-stack gap="base">
+          <s-paragraph>
+            Esta acción cambiará el producto de Borrador a Activo y
+            lo publicará en el canal Tienda online.
+          </s-paragraph>
+          <s-paragraph>
+            Shopify volverá a validar los componentes y la configuración
+            antes de efectuar el cambio. Solo se modificará este producto.
+            Si tienes otros canales configurados para publicación automática,
+            activarlo también podría afectar su disponibilidad en esos canales.
+          </s-paragraph>
+        </s-stack>
+        <s-button
+          slot="secondary-actions"
+          variant="secondary"
+          commandFor="bundle-publish-confirm-modal"
+          command="--hide"
+        >
+          Cancelar
+        </s-button>
+        <s-button
+          slot="primary-action"
+          variant="primary"
+          disabled={!publicationApproved || publishingBusy}
+          onClick={() => {
+            if (!publicationApproved || !detailCandidateId) return;
+            void shopify.modal.hide("bundle-publish-confirm-modal");
+            publishFetcher.submit(
+              {
+                intent: "publish_online_store",
+                candidateId: detailCandidateId,
+              },
+              { method: "post" },
+            );
+          }}
+        >
+          Activar y publicar
+        </s-button>
+      </s-modal>
+
+      <s-modal
+        id="bundle-detail-modal"
+        heading="Detalle de Bundles"
+        accessibilityLabel="Detalle de Bundles"
+        size="large"
+        onHide={() =>
+          setDetailCandidateId(
+            null,
+          )
+        }
+      >
+
+        {detailCandidate &&
+          detailMatch &&
+          detailPrice && (
+          <s-stack gap="base">
+
+            <s-section heading="Producto">
+
+              <s-stack gap="small">
+
+                <s-heading>
+                  {detailMatch.existingProduct?.title || detailCandidate.identity.title}
+                </s-heading>
+
+                <s-text tone="neutral">
+                  SKU:{" "}
+                  {
+                    detailCandidate
+                      .identity
+                      .sku
+                  }
+                </s-text>
+
+              </s-stack>
+
+            </s-section>
+
+            <s-section heading="Estado">
+
+              <s-stack gap="small">
+
+                <s-grid
+                  gridTemplateColumns="1fr auto"
+                  gap="small"
+                >
+                  <s-text tone="neutral">
+                    Flujo
+                  </s-text>
+                  <s-badge
+                    tone={
+                      getWorkflowStatusTone(
+                        detailMatch.status,
+                        detailMatch
+                          .existingProduct
+                          ?.publishedAt,
+                      )
+                    }
+                  >
+                    {
+                      getWorkflowStatusLabel(
+                        detailMatch.status,
+                        detailMatch
+                          .existingProduct
+                          ?.publishedAt,
+                      )
+                    }
+                  </s-badge>
+                </s-grid>
+
+                <s-grid
+                  gridTemplateColumns="1fr auto"
+                  gap="small"
+                >
+                  <s-text tone="neutral">
+                    Estado Shopify
+                  </s-text>
+
+                  <s-badge
+                    tone={
+                      getProductStatusTone(
+                        detailMatch
+                          .existingProduct
+                          ?.status,
+                      )
+                    }
+                  >
+                    {
+                      getProductStatusLabel(
+                        detailMatch
+                          .existingProduct
+                          ?.status,
+                      )
+                    }
+                  </s-badge>
+                </s-grid>
+
+                <s-grid
+                  gridTemplateColumns="1fr auto"
+                  gap="small"
+                >
+                  <s-text tone="neutral">
+                    Tienda online
+                  </s-text>
+
+                  <s-badge
+                    tone={
+                      detailMatch
+                        .existingProduct
+                        ?.publishedAt
+                        ? "success"
+                        : "neutral"
+                    }
+                  >
+                    {
+                      detailMatch
+                        .existingProduct
+                        ?.publishedAt
+                        ? "Publicado"
+                        : detailMatch
+                              .existingProduct
+                          ? "Sin publicar"
+                          : "Aún no creado"
+                    }
+                  </s-badge>
+                </s-grid>
+
+                <s-grid
+                  gridTemplateColumns="1fr auto"
+                  gap="small"
+                >
+                  <s-text tone="neutral">
+                    Plantilla
+                  </s-text>
+                  <s-text>
+                    {
+                      detailCandidate
+                        .templateName
+                    }
+                  </s-text>
+                </s-grid>
+
+              </s-stack>
+
+            </s-section>
+
+            <s-section heading="Componentes">
+
+              <s-stack gap="small">
+
+                <s-text>
+                  <strong>PC:</strong>{" "}
+                  {
+                    detailCandidate
+                      .baseProduct
+                      .title
+                  }
+                </s-text>
+
+                <s-text>
+                  <strong>Monitor:</strong>{" "}
+                  {
+                    detailCandidate
+                      .monitor
+                      .title
+                  }
+                </s-text>
+
+                <s-text>
+                  <strong>Teclado y mouse:</strong>{" "}
+                  {
+                    detailCandidate
+                      .keyboardMouse
+                      .title
+                  }
+                </s-text>
+
+                <s-text>
+                  <strong>Wi-Fi:</strong>{" "}
+                  {
+                    detailCandidate
+                      .wifiAdapter
+                      ?.title ??
+                    "Wi-Fi integrado · no requiere adaptador"
+                  }
+                </s-text>
+
+              </s-stack>
+
+            </s-section>
+
+            {detailDescription && (
+              <s-section heading="Descripción y SEO">
+                <s-stack gap="base">
+                  <s-paragraph>
+                    Vista previa de la descripción y los datos SEO de un borrador nuevo.
+                    En borradores existentes, puedes completar solo los campos vacíos,
+                    sin sustituir textos ni cambiar su URL.
+                  </s-paragraph>
+                  <div
+                    style={{
+                      padding: "14px",
+                      border: "1px solid var(--p-color-border-secondary, #e3e3e3)",
+                      borderRadius: "8px",
+                    }}
+                    dangerouslySetInnerHTML={{
+                      __html: detailDescription.descriptionHtml,
+                    }}
+                  />
+                  <s-text tone="neutral">
+                    <strong>Handle SEO:</strong>{" "}
+                    {detailMatch.existingProduct
+                      ? detailMatch.existingProduct.handle
+                        ? `/products/${detailMatch.existingProduct.handle}`
+                        : "Pendiente de confirmar desde Shopify"
+                      : `/products/${detailDescription.handle}`}
+                  </s-text>
+                  <s-text tone="neutral">
+                    <strong>Título SEO:</strong> {detailDescription.seoTitle}
+                  </s-text>
+                  <s-text tone="neutral">
+                    <strong>Descripción SEO:</strong> {detailDescription.seoDescription}
+                  </s-text>
+                  {detailMatch.existingProduct && (
+                    <s-text tone="neutral">
+                      El handle anterior se mantiene. Editarlo directamente en
+                      Shopify puede requerir una redirección de URL.
+                    </s-text>
+                  )}
+                </s-stack>
+              </s-section>
+            )}
+
+            <s-section heading="Compatibilidad">
+
+              <s-stack gap="small">
+
+                <s-grid
+                  gridTemplateColumns="1fr auto"
+                  gap="small"
+                >
+                  <s-text tone="neutral">
+                    Conexión de video
+                  </s-text>
+                  <s-text>
+                    {
+                      detailCandidate
+                        .commonVideoPorts
+                        .join(
+                          ", ",
+                        ) ||
+                      "Sin coincidencia"
+                    }
+                  </s-text>
+                </s-grid>
+
+                <s-grid
+                  gridTemplateColumns="1fr auto"
+                  gap="small"
+                >
+                  <s-text tone="neutral">
+                    Disponibles
+                  </s-text>
+                  <s-text>
+                    {
+                      getTemplateCandidateStock(
+                        detailCandidate,
+                      )
+                    }
+                  </s-text>
+                </s-grid>
+
+              </s-stack>
+
+            </s-section>
+
+            <s-section heading="Precio">
+
+              <s-stack gap="small">
+
+                <s-grid
+                  gridTemplateColumns="1fr auto"
+                  gap="small"
+                >
+                  <s-text tone="neutral">
+                    Precio de comparación (suma individual)
+                  </s-text>
+                  <s-text>
+                    {formatPrice(
+                      detailPrice.componentPrice,
+                      data.catalog.currencyCode,
+                    )}
+                  </s-text>
+                </s-grid>
+
+                <s-grid
+                  gridTemplateColumns="1fr auto"
+                  gap="small"
+                >
+                  <s-text tone="neutral">
+                    Ahorro
+                  </s-text>
+                  <s-text tone="success">
+                    {formatPrice(
+                      detailPrice.savings,
+                      data.catalog.currencyCode,
+                    )}
+                  </s-text>
+                </s-grid>
+
+                <s-divider />
+
+                <s-grid
+                  gridTemplateColumns="1fr auto"
+                  gap="small"
+                >
+                  <s-text>
+                    Precio de Bundles
+                  </s-text>
+                  <s-heading>
+                    {formatPrice(
+                      detailPrice.finalPrice,
+                      data.catalog.currencyCode,
+                    )}
+                  </s-heading>
+                </s-grid>
+
+              </s-stack>
+
+            </s-section>
+
+            <s-section heading="Peso para despacho">
+              <s-text>
+                El peso de los componentes se suma y se guarda en Shopify en kilogramos (kg).
+                Para borradores creados anteriormente, utiliza «Actualizar peso».
+              </s-text>
+            </s-section>
+
+            <s-section heading="Acciones">
+
+              <s-stack gap="small">
+
+                {detailMatch.status === "existing_managed" && detailMatch.existingProduct && (
+                  <fetcher.Form method="post">
+                    <input type="hidden" name="intent" value="complete_images" />
+                    <input type="hidden" name="candidateId" value={detailCandidate.id} />
+                    <s-button
+                      variant="secondary"
+                      type="submit"
+                      disabled={working || publishingBusy}
+                    >
+                      Agregar fotos de componentes
+                    </s-button>
+                    <s-text tone="neutral">
+                      Importa las imágenes principales del PC, monitor y accesorios
+                      solo si el Bundle no tiene galería. No modifica los componentes.
+                    </s-text>
+                  </fetcher.Form>
+                )}
+
+
+                {detailMatch.status === "existing_managed" &&
+                  detailMatch.existingProduct?.status === "DRAFT" && (
+                    <fetcher.Form method="post">
+                      <input type="hidden" name="intent" value="complete_compare_at_price" />
+                      <input type="hidden" name="candidateId" value={detailCandidate.id} />
+                      <s-button
+                        variant="secondary"
+                        type="submit"
+                        disabled={working || publishingBusy}
+                      >
+                        Completar precio de comparación
+                      </s-button>
+                    </fetcher.Form>
+                  )}
+
+                {detailMatch.status === "existing_managed" &&
+                  detailMatch.existingProduct?.status === "DRAFT" && (
+                    <fetcher.Form method="post">
+                      <input type="hidden" name="intent" value="complete_description" />
+                      <input type="hidden" name="candidateId" value={detailCandidate.id} />
+                      <s-button
+                        variant="secondary"
+                        type="submit"
+                        disabled={working || publishingBusy}
+                      >
+                        Completar campos faltantes de la ficha
+                      </s-button>
+                    </fetcher.Form>
+                  )}
+
+                {detailMatch.status === "existing_managed" &&
+                  detailMatch.existingProduct?.status === "DRAFT" && (
+                    <s-stack gap="small">
+                      <s-paragraph>
+                        Antes de publicar, la app verificará nuevamente SKU, precio,
+                        peso, stock, componentes y el canal Tienda online.
+                      </s-paragraph>
+
+                      {!data.publishPermissionsReady && (
+                        <s-banner
+                          heading="Publicación pendiente de permisos"
+                          tone="warning"
+                        >
+                          Shopify debe autorizar los permisos de lectura y escritura
+                          de publicaciones para habilitar esta acción.
+                          Mientras tanto, el producto permanece en Borrador.
+                        </s-banner>
+                      )}
+
+                      <publishFetcher.Form method="post">
+                        <input type="hidden" name="intent" value="validate_publish" />
+                        <input
+                          type="hidden"
+                          name="candidateId"
+                          value={detailCandidate.id}
+                        />
+                        <s-button
+                          type="submit"
+                          variant="secondary"
+                          disabled={working || publishingBusy || !data.publishPermissionsReady}
+                        >
+                          {publishingBusy ? "Verificando..." : "Validar para publicar"}
+                        </s-button>
+                      </publishFetcher.Form>
+
+                      {publicationAudit &&
+                        "candidateId" in publicationAudit &&
+                        publicationAudit.candidateId === detailCandidate.id &&
+                        "ready" in publicationAudit &&
+                        publicationAudit.ready === false &&
+                        publicationAudit.success === false && (
+                          <s-banner
+                            heading="No se puede publicar este Bundles"
+                            tone="warning"
+                          >
+                            {publicationAudit.message}
+                          </s-banner>
+                        )}
+
+                      {publicationApproved && (
+                        <s-banner
+                          heading="Validación aprobada"
+                          tone="success"
+                        >
+                          <s-stack gap="small">
+                            {publicationAudit &&
+                              "checks" in publicationAudit &&
+                              Array.isArray(publicationAudit.checks) &&
+                              publicationAudit.checks.map((check, index) => (
+                                <s-text key={index}>{check}</s-text>
+                              ))}
+                            <s-button
+                              variant="primary"
+                              disabled={working || publishingBusy}
+                              onClick={() =>
+                                void shopify.modal.show(
+                                  "bundle-publish-confirm-modal",
+                                )
+                              }
+                            >
+                              Publicar en Tienda online
+                            </s-button>
+                          </s-stack>
+                        </s-banner>
+                      )}
+                    </s-stack>
+                  )}
+
+                {detailMatch.status === "new" &&
+                  needsComponentReview(detailCandidate.id) && (
+                    <s-banner heading="Faltan datos para crear este Bundles" tone="warning">
+                      <s-stack gap="small">
+                        {(readinessByCandidateId.get(detailCandidate.id) ?? [])
+                          .map((issue, index) => (
+                            <s-paragraph key={index}>
+                              {issue.message}: {issue.componentTitle}
+                            </s-paragraph>
+                          ))}
+                        {readinessUnavailable && (
+                          <s-paragraph>
+                            No se pudo consultar Shopify para verificar los componentes.
+                          </s-paragraph>
+                        )}
+                        <s-link href="/app/problems?filter=component_data">
+                          Ir a Productos con problemas
+                        </s-link>
+                      </s-stack>
+                    </s-banner>
+                  )}
+
+                {isCandidateReady(detailCandidate.id) && (
+                  <fetcher.Form
+                    method="post"
+                    onSubmit={() =>
+                      setCreatingCandidateId(
+                        detailCandidate.id,
+                      )
+                    }
+                  >
+
+                    <input
+                      type="hidden"
+                      name="intent"
+                      value="create_draft"
+                    />
+
+                    <input
+                      type="hidden"
+                      name="candidateId"
+                      value={
+                        detailCandidate.id
+                      }
+                    />
+
+                    <s-button
+                      variant="primary"
+                      type="submit"
+                      disabled={
+                        working
+                      }
+                    >
+                      {working &&
+                      creatingCandidateId ===
+                        detailCandidate.id
+                        ? "Creando..."
+                        : "Crear borrador"}
+                    </s-button>
+
+                  </fetcher.Form>
+                )}
+
+                {detailMatch.status ===
+                  "new" && (
+                  <fetcher.Form method="post">
+
+                    <input
+                      type="hidden"
+                      name="intent"
+                      value="exclude"
+                    />
+
+                    <input
+                      type="hidden"
+                      name="productId"
+                      value={
+                        detailCandidate
+                          .baseProduct
+                          .id
+                      }
+                    />
+
+                    <s-button
+                      variant="secondary"
+                      type="submit"
+                      disabled={
+                        working
+                      }
+                    >
+                      Excluir este PC de todas las propuestas
+                    </s-button>
+
+                  </fetcher.Form>
+                )}
+
+                {detailMatch
+                  .existingProduct && (
+                  <fetcher.Form method="post">
+
+                    <input
+                      type="hidden"
+                      name="intent"
+                      value="sync_weight"
+                    />
+
+                    <input
+                      type="hidden"
+                      name="candidateId"
+                      value={
+                        detailCandidate.id
+                      }
+                    />
+
+                    <s-button
+                      variant="secondary"
+                      type="submit"
+                      disabled={
+                        working
+                      }
+                    >
+                      Actualizar peso
+                    </s-button>
+
+                  </fetcher.Form>
+                )}
+
+                {detailMatch
+                  .existingProduct && (
+                  <s-link
+                    href={
+                      getShopifyAdminProductHref(
+                        detailMatch
+                          .existingProduct
+                          .id,
+                      )
+                    }
+                  >
+                    Abrir producto en Shopify
+                  </s-link>
+                )}
+
+              </s-stack>
+
+            </s-section>
+
+          </s-stack>
+        )}
+
+        <s-button
+          slot="secondary-actions"
+          variant="secondary"
+          commandFor="bundle-detail-modal"
+          command="--hide"
+        >
+          Cerrar
+        </s-button>
+
+      </s-modal>
 
     </s-page>
   );

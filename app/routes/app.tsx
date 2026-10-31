@@ -20,6 +20,7 @@ import {
 import {
   authenticate,
 } from "../shopify.server";
+import { isAllowedShop } from "../lib/shop-allowlist.server";
 
 /* =========================================================
    LOADER
@@ -29,9 +30,12 @@ export const loader =
   async ({
     request,
   }: LoaderFunctionArgs) => {
-    await authenticate.admin(
+    const { session } = await authenticate.admin(
       request,
     );
+    if (!isAllowedShop(session.shop)) {
+      throw new Response("Esta tienda no está autorizada para esta instalación.", { status: 403 });
+    }
 
     return {
       apiKey:
@@ -40,6 +44,14 @@ export const loader =
         "",
     };
   };
+
+/*
+ * The app shell only returns the public API key. It does not
+ * need to authenticate again when moving between child pages
+ * or after child actions.
+ */
+export const shouldRevalidate =
+  () => false;
 
 /* =========================================================
    APP
@@ -63,12 +75,12 @@ export default function App() {
 
       <s-app-nav>
 
-        <s-link href="/app">
-          Home
-        </s-link>
-
         <s-link href="/app/bundles">
           Bundles
+        </s-link>
+
+        <s-link href="/app">
+          Resumen
         </s-link>
 
         <s-link href="/app/templates">
@@ -81,6 +93,10 @@ export default function App() {
 
         <s-link href="/app/rules">
           Reglas y cálculo
+        </s-link>
+
+        <s-link href="/app/sync">
+          Precios y disponibilidad
         </s-link>
 
         <s-link href="/app/problems">

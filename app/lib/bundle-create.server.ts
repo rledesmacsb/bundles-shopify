@@ -1,32 +1,46 @@
 import type {
-  BundleCandidate,
-  BundlePriceConfig,
-  ProductNode,
-} from "./bundle-engine";
+  TemplateCatalogProduct,
+} from "./bundle-rule-engine";
+
+import type {
+  TemplateBundleCandidate,
+} from "./bundle-template-engine";
+
+import { buildBundleProductContent } from "./bundle-description";
+import { addComponentImagesToEmptyBundle } from "./bundle-images.server";
+import { auditComponentSkuUniqueness } from "./bundle-sku-guard.server";
 
 import {
-  calculateBundlePrice,
-  getBundleIdentity,
-} from "./bundle-engine";
+  buildTemplateBundleState,
+  calculateTemplateCandidatePrice,
+} from "./bundle-template-engine";
+
+import {
+  loadBundleTemplateCatalog,
+} from "./bundle-template-catalog.server";
+
+import {
+  loadBundleRuntimeSettings,
+} from "./bundle-runtime-settings.server";
+
+import {
+  BUNDLE_BASE_PRODUCT_ID_KEY,
+  BUNDLE_MANAGED_BY_KEY,
+  BUNDLE_MANAGED_BY_VALUE,
+  BUNDLE_META_NAMESPACE,
+  BUNDLE_TEMPLATE_KEY,
+  loadExistingPcMonitorBundleMatches,
+} from "./bundle-existing.server";
 
 /* =========================================================
    CONSTANTS
 ========================================================= */
 
 const MANAGED_NAMESPACE =
-  "csbyte_bundle";
+  BUNDLE_META_NAMESPACE;
 
 const MANAGED_BY_VALUE =
-  "csbyte-commerce-tools";
-
-const TEMPLATE_VALUE =
-  "pc_monitor";
-
-const PRODUCT_TYPE =
-  "Combo PC y Monitor";
-
-const VENDOR =
-  "CSBYTE";
+  BUNDLE_MANAGED_BY_VALUE;
 
 /* =========================================================
    TYPES
@@ -50,9 +64,32 @@ type ProductOption = {
   values: string[];
 };
 
+type WeightUnit =
+  | "GRAMS"
+  | "KILOGRAMS"
+  | "OUNCES"
+  | "POUNDS";
+
+type WeightValue = {
+  value: number;
+  unit: WeightUnit;
+};
+
 type CreationVariant = {
   id: string;
   sku: string | null;
+
+  inventoryItem:
+    | {
+        measurement:
+          | {
+              weight:
+                | WeightValue
+                | null;
+            }
+          | null;
+      }
+    | null;
 
   selectedOptions: SelectedOption[];
 };
@@ -107,6 +144,10 @@ export type CreateDraftBundleResult = {
   sku?: string;
 
   price?: number;
+
+  compareAtPrice?: number | null;
+
+  weightGrams?: number;
 
   partial?: boolean;
 };
@@ -167,6 +208,114 @@ function formatErrors(
   return errors
     .filter(Boolean)
     .join(" | ");
+}
+
+function weightToGrams(
+  weight:
+    WeightValue,
+) {
+  switch (
+    weight.unit
+  ) {
+    case "GRAMS":
+      return weight.value;
+
+    case "KILOGRAMS":
+      return (
+        weight.value *
+        1000
+      );
+
+    case "OUNCES":
+      return (
+        weight.value *
+        28.349523125
+      );
+
+    case "POUNDS":
+      return (
+        weight.value *
+        453.59237
+      );
+
+    default:
+      return Number.NaN;
+  }
+}
+
+function getBundleWeightGrams(
+  components:
+    ComponentDetail[],
+) {
+  let total =
+    0;
+
+  const errors:
+    string[] =
+    [];
+
+  for (
+    const component
+    of components
+  ) {
+    const weight =
+      component
+        .variant
+        .inventoryItem
+        ?.measurement
+        ?.weight;
+
+    const label =
+      getComponentLabel(
+        component.role,
+      );
+
+    if (
+      !weight ||
+      !Number.isFinite(
+        weight.value,
+      ) ||
+      weight.value <=
+        0
+    ) {
+      errors.push(
+        `${label}: falta el peso del producto en Shopify.`,
+      );
+
+      continue;
+    }
+
+    const grams =
+      weightToGrams(
+        weight,
+      );
+
+    if (
+      !Number.isFinite(
+        grams,
+      ) ||
+      grams <=
+        0
+    ) {
+      errors.push(
+        `${label}: el peso configurado no es válido.`,
+      );
+
+      continue;
+    }
+
+    total +=
+      grams;
+  }
+
+  return {
+    weightGrams:
+      Math.round(
+        total,
+      ),
+
+    errors,
+  };
 }
 
 function getComponentLabel(
@@ -232,6 +381,15 @@ async function fetchCreationProduct(
                 nodes {
                   id
                   sku
+
+                  inventoryItem {
+                    measurement {
+                      weight {
+                        value
+                        unit
+                      }
+                    }
+                  }
 
                   selectedOptions {
                     name
@@ -336,7 +494,7 @@ async function loadComponentDetail(
   admin: AdminClient,
 
   product:
-    ProductNode,
+    TemplateCatalogProduct,
 
   role:
     ComponentRole,
@@ -919,7 +1077,7 @@ async function waitForBundleCreation(
           null,
 
         errors: [
-          "Shopify no devolvió la operación del bundle.",
+          "Shopify no devolvió la operación de Bundles.",
         ],
       };
     }
@@ -981,7 +1139,7 @@ async function waitForBundleCreation(
       null,
 
     errors: [
-      "Shopify todavía está procesando el bundle. La operación superó el tiempo de espera de la app.",
+      "Shopify todavía está procesando el producto de Bundles. La operación superó el tiempo de espera de la app.",
     ],
   };
 }
@@ -989,11 +1147,96 @@ async function waitForBundleCreation(
 /* =========================================================
    UPDATE PRODUCT
 
-   El bundle queda siempre:
-   - Vendor CSBYTE
-   - Product Type Combo PC y Monitor
-   - DRAFT
+   The generated product always uses the identity configured
+   in the active template and remains DRAFT.
 ========================================================= */
+
+async function forceBundleDraft(
+  admin:
+    AdminClient,
+
+  productId:
+    string,
+) {
+  try {
+    const response =
+      await admin.graphql(
+        `#graphql
+          mutation CsbyteForceBundleDraft(
+            $product: ProductUpdateInput!
+          ) {
+            productUpdate(
+              product: $product
+            ) {
+              product {
+                id
+                status
+              }
+
+              userErrors {
+                field
+                message
+              }
+            }
+          }
+        `,
+        {
+          variables: {
+            product: {
+              id:
+                productId,
+
+              status:
+                "DRAFT",
+            },
+          },
+        },
+      );
+
+    const json =
+      (await response.json()) as {
+        data?: {
+          productUpdate?: {
+            userErrors?: Array<{
+              message:
+                string;
+            }>;
+          };
+        };
+
+        errors?: Array<{
+          message:
+            string;
+        }>;
+      };
+
+    return {
+      errors: [
+        ...getGraphqlErrors(
+          json,
+        ),
+
+        ...(json.data
+          ?.productUpdate
+          ?.userErrors
+          ?.map(
+            (error) =>
+              error.message,
+          ) ?? []),
+      ],
+    };
+  } catch (
+    error
+  ) {
+    return {
+      errors: [
+        error instanceof Error
+          ? error.message
+          : "No fue posible forzar el producto a Borrador.",
+      ],
+    };
+  }
+}
 
 async function updateBundleProduct(
   admin:
@@ -1001,90 +1244,174 @@ async function updateBundleProduct(
 
   productId:
     string,
-) {
-  const response =
-    await admin.graphql(
-      `#graphql
-        mutation CsbyteConfigureBundleProduct(
-          $product: ProductUpdateInput!
-        ) {
-          productUpdate(
-            product: $product
-          ) {
-            product {
-              id
-              vendor
-              productType
-              status
-            }
 
-            userErrors {
-              field
-              message
+  candidate:
+    TemplateBundleCandidate,
+) {
+  // Only called when creating a new draft. Existing products and any manual
+  // descriptions already written in Shopify are deliberately left untouched.
+  const content = buildBundleProductContent(candidate);
+
+  try {
+    const response =
+      await admin.graphql(
+        `#graphql
+          mutation CsbyteConfigureBundleProduct(
+            $product: ProductUpdateInput!
+          ) {
+            productUpdate(
+              product: $product
+            ) {
+              product {
+                id
+                title
+                vendor
+                productType
+                status
+              }
+
+              userErrors {
+                field
+                message
+              }
             }
           }
-        }
-      `,
-      {
-        variables: {
-          product: {
-            id:
-              productId,
+        `,
+        {
+          variables: {
+            product: {
+              id:
+                productId,
 
-            vendor:
-              VENDOR,
+              title:
+                candidate
+                  .identity
+                  .title,
 
-            productType:
-              PRODUCT_TYPE,
+              // Apply only to newly created drafts. Existing Shopify URLs
+              // and merchant-managed redirections remain untouched.
+              handle: content.handle,
+              redirectNewHandle: false,
 
-            status:
-              "DRAFT",
+              vendor:
+                candidate
+                  .identity
+                  .vendor,
+
+              productType:
+                candidate
+                  .identity
+                  .productType,
+
+              descriptionHtml:
+                content.descriptionHtml,
+
+              seo: {
+                title: content.seoTitle,
+                description: content.seoDescription,
+              },
+
+              status:
+                "DRAFT",
+            },
           },
         },
-      },
-    );
+      );
 
-  const json =
-    (await response.json()) as {
-      data?: {
-        productUpdate?: {
-          userErrors?: Array<{
-            message:
-              string;
-          }>;
+    const json =
+      (await response.json()) as {
+        data?: {
+          productUpdate?: {
+            userErrors?: Array<{
+              message:
+                string;
+            }>;
+          };
         };
+
+        errors?: Array<{
+          message:
+            string;
+        }>;
       };
 
-      errors?: Array<{
-        message:
-          string;
-      }>;
+    const errors = [
+      ...getGraphqlErrors(
+        json,
+      ),
+
+      ...(json.data
+        ?.productUpdate
+        ?.userErrors
+        ?.map(
+          (error) =>
+            error.message,
+        ) ?? []),
+    ];
+
+    if (
+      errors.length ===
+      0
+    ) {
+      return {
+        errors,
+      };
+    }
+
+    const fallback =
+      await forceBundleDraft(
+        admin,
+        productId,
+      );
+
+    return {
+      errors: [
+        ...errors,
+
+        ...(fallback.errors.length >
+        0
+          ? [
+              `Además falló el intento de dejar el producto en Borrador: ${formatErrors(
+                fallback.errors,
+              )}`,
+            ]
+          : []),
+      ],
     };
+  } catch (
+    error
+  ) {
+    const fallback =
+      await forceBundleDraft(
+        admin,
+        productId,
+      );
 
-  const errors = [
-    ...getGraphqlErrors(
-      json,
-    ),
+    return {
+      errors: [
+        error instanceof Error
+          ? error.message
+          : "No fue posible configurar el producto creado.",
 
-    ...(json.data
-      ?.productUpdate
-      ?.userErrors
-      ?.map(
-        (error) =>
-          error.message,
-      ) ?? []),
-  ];
-
-  return {
-    errors,
-  };
+        ...(fallback.errors.length >
+        0
+          ? [
+              `Además falló el intento de dejar el producto en Borrador: ${formatErrors(
+                fallback.errors,
+              )}`,
+            ]
+          : []),
+      ],
+    };
+  }
 }
 
 /* =========================================================
    UPDATE PARENT VARIANT
 
-   - Commercial bundle price
-   - BND-{base SKU}
+   - Precio comercial
+   - SKU BND-{base SKU}
+   - Peso total de los componentes
 ========================================================= */
 
 async function updateBundleVariant(
@@ -1102,6 +1429,11 @@ async function updateBundleVariant(
 
   price:
     number,
+
+  compareAtPrice: number | null,
+
+  weightGrams:
+    number,
 ) {
   const response =
     await admin.graphql(
@@ -1117,9 +1449,17 @@ async function updateBundleVariant(
             productVariants {
               id
               price
+              compareAtPrice
 
               inventoryItem {
                 sku
+
+                measurement {
+                  weight {
+                    value
+                    unit
+                  }
+                }
               }
             }
 
@@ -1143,9 +1483,18 @@ async function updateBundleVariant(
                 String(
                   price,
                 ),
+              compareAtPrice: compareAtPrice !== null && compareAtPrice > price ? String(compareAtPrice) : null,
+
 
               inventoryItem: {
                 sku,
+
+                measurement: {
+                  weight: {
+                    value: Number((weightGrams / 1000).toFixed(3)),
+                    unit: "KILOGRAMS",
+                  },
+                },
               },
             },
           ],
@@ -1206,6 +1555,9 @@ async function writeBundleMetadata(
   parentProductId:
     string,
 
+  candidate:
+    TemplateBundleCandidate,
+
   components:
     ComponentDetail[],
 
@@ -1213,6 +1565,9 @@ async function writeBundleMetadata(
     string,
 
   finalPrice:
+    number,
+
+  weightGrams:
     number,
 ) {
   const base =
@@ -1250,18 +1605,23 @@ async function writeBundleMetadata(
   ) {
     return {
       errors: [
-        "No fue posible construir los metadatos internos del bundle.",
+        "No fue posible construir los metadatos internos de Bundles.",
       ],
     };
   }
 
   const snapshot = {
     schemaVersion:
-      1,
+      2,
+
+    templateId:
+      candidate.templateId,
 
     sku,
 
     finalPrice,
+
+    weightGrams,
 
     base: {
       productId:
@@ -1308,7 +1668,7 @@ async function writeBundleMetadata(
         MANAGED_NAMESPACE,
 
       key:
-        "managed_by",
+        BUNDLE_MANAGED_BY_KEY,
 
       type:
         "single_line_text_field",
@@ -1325,13 +1685,13 @@ async function writeBundleMetadata(
         MANAGED_NAMESPACE,
 
       key:
-        "template",
+        BUNDLE_TEMPLATE_KEY,
 
       type:
         "single_line_text_field",
 
       value:
-        TEMPLATE_VALUE,
+        candidate.templateId,
     },
 
     {
@@ -1342,7 +1702,7 @@ async function writeBundleMetadata(
         MANAGED_NAMESPACE,
 
       key:
-        "base_product_id",
+        BUNDLE_BASE_PRODUCT_ID_KEY,
 
       type:
         "single_line_text_field",
@@ -1449,10 +1809,18 @@ async function verifyCreatedBundle(
   productId:
     string,
 
+  candidate:
+    TemplateBundleCandidate,
+
   expectedSku:
     string,
 
   expectedPrice:
+    number,
+
+  expectedCompareAtPrice: number | null,
+
+  expectedWeightGrams:
     number,
 ) {
   const response =
@@ -1469,6 +1837,7 @@ async function verifyCreatedBundle(
             vendor
             productType
             status
+            handle
 
             variants(
               first: 2
@@ -1476,23 +1845,52 @@ async function verifyCreatedBundle(
               nodes {
                 id
                 price
+                compareAtPrice
 
                 inventoryItem {
                   sku
+
+                  measurement {
+                    weight {
+                      value
+                      unit
+                    }
+                  }
                 }
               }
             }
 
+            bundleComponents(
+              first: 10
+            ) {
+              nodes {
+                componentProduct {
+                  id
+                }
+              }
+
+              pageInfo {
+                hasNextPage
+              }
+            }
+
             managedBy: metafield(
-              namespace: "csbyte_bundle"
-              key: "managed_by"
+              namespace: "${MANAGED_NAMESPACE}"
+              key: "${BUNDLE_MANAGED_BY_KEY}"
             ) {
               value
             }
 
             template: metafield(
-              namespace: "csbyte_bundle"
-              key: "template"
+              namespace: "${MANAGED_NAMESPACE}"
+              key: "${BUNDLE_TEMPLATE_KEY}"
+            ) {
+              value
+            }
+
+            baseProductId: metafield(
+              namespace: "${MANAGED_NAMESPACE}"
+              key: "${BUNDLE_BASE_PRODUCT_ID_KEY}"
             ) {
               value
             }
@@ -1527,6 +1925,9 @@ async function verifyCreatedBundle(
               status:
                 string;
 
+              handle:
+                string;
+
               variants: {
                 nodes: Array<{
                   id:
@@ -1534,14 +1935,38 @@ async function verifyCreatedBundle(
 
                   price:
                     string;
+                  compareAtPrice: string | null;
+
 
                   inventoryItem?:
                     | {
                         sku:
                           string | null;
+
+                        measurement?:
+                          | {
+                              weight:
+                                | WeightValue
+                                | null;
+                            }
+                          | null;
                       }
                     | null;
                 }>;
+              };
+
+              bundleComponents: {
+                nodes: Array<{
+                  componentProduct: {
+                    id:
+                      string;
+                  };
+                }>;
+
+                pageInfo: {
+                  hasNextPage:
+                    boolean;
+                };
               };
 
               managedBy?:
@@ -1552,6 +1977,13 @@ async function verifyCreatedBundle(
                 | null;
 
               template?:
+                | {
+                    value:
+                      string;
+                  }
+                | null;
+
+              baseProductId?:
                 | {
                     value:
                       string;
@@ -1590,7 +2022,7 @@ async function verifyCreatedBundle(
   ) {
     return {
       errors: [
-        "No fue posible verificar el bundle recién creado.",
+        "No fue posible verificar el producto de Bundles recién creado.",
       ],
     };
   }
@@ -1599,20 +2031,29 @@ async function verifyCreatedBundle(
     string[] = [];
 
   if (
-    product.vendor !==
-    VENDOR
+    product.title !==
+    candidate.identity.title
   ) {
     verificationErrors.push(
-      `Proveedor esperado: ${VENDOR}.`,
+      "El título final no coincide con la propuesta.",
+    );
+  }
+
+  if (
+    product.vendor !==
+    candidate.identity.vendor
+  ) {
+    verificationErrors.push(
+      `Proveedor esperado: ${candidate.identity.vendor}.`,
     );
   }
 
   if (
     product.productType !==
-    PRODUCT_TYPE
+    candidate.identity.productType
   ) {
     verificationErrors.push(
-      `Tipo de producto esperado: ${PRODUCT_TYPE}.`,
+      `Tipo de producto esperado: ${candidate.identity.productType}.`,
     );
   }
 
@@ -1621,7 +2062,14 @@ async function verifyCreatedBundle(
     "DRAFT"
   ) {
     verificationErrors.push(
-      "El bundle no quedó en estado Borrador.",
+      "El producto de Bundles no quedó en estado Borrador.",
+    );
+  }
+
+  const expectedHandle = buildBundleProductContent(candidate).handle;
+  if (product.handle !== expectedHandle) {
+    verificationErrors.push(
+      `Handle SEO esperado: /products/${expectedHandle}.`,
     );
   }
 
@@ -1633,7 +2081,7 @@ async function verifyCreatedBundle(
     1
   ) {
     verificationErrors.push(
-      "El bundle padre no tiene exactamente una variante.",
+      "El producto principal de Bundles no tiene exactamente una variante.",
     );
 
     return {
@@ -1669,6 +2117,97 @@ async function verifyCreatedBundle(
     );
   }
 
+  const actualCompareAt = variant.compareAtPrice == null ? null : Number(variant.compareAtPrice);
+  if (actualCompareAt !== expectedCompareAtPrice) {
+    verificationErrors.push(expectedCompareAtPrice === null
+      ? "No debe existir precio de comparación sin ahorro."
+      : "Precio de comparación esperado: " + expectedCompareAtPrice + ".");
+  }
+
+  const actualWeight =
+    variant
+      .inventoryItem
+      ?.measurement
+      ?.weight;
+
+  const actualWeightGrams =
+    actualWeight
+      ? Math.round(
+          weightToGrams(
+            actualWeight,
+          ),
+        )
+      : null;
+
+  if (
+    actualWeightGrams !==
+    expectedWeightGrams || actualWeight?.unit !== "KILOGRAMS"
+  ) {
+    verificationErrors.push(
+      "Peso esperado: " + (expectedWeightGrams / 1000).toFixed(3) + " kg.",
+    );
+  }
+
+  const expectedComponentIds =
+    [
+      candidate
+        .baseProduct
+        .id,
+
+      candidate
+        .monitor
+        .id,
+
+      candidate
+        .keyboardMouse
+        .id,
+
+      ...(candidate.wifiAdapter
+        ? [
+            candidate
+              .wifiAdapter
+              .id,
+          ]
+        : []),
+    ];
+
+  const actualComponentIds =
+    product
+      .bundleComponents
+      .nodes
+      .map(
+        (node) =>
+          node
+            .componentProduct
+            .id,
+      );
+
+  if (
+    product
+      .bundleComponents
+      .pageInfo
+      .hasNextPage
+  ) {
+    verificationErrors.push(
+      "El producto de Bundles tiene más componentes de los esperados.",
+    );
+  }
+
+  if (
+    actualComponentIds.length !==
+    expectedComponentIds.length ||
+    expectedComponentIds.some(
+      (id) =>
+        !actualComponentIds.includes(
+          id,
+        ),
+    )
+  ) {
+    verificationErrors.push(
+      "Los componentes finales no coinciden exactamente con la propuesta.",
+    );
+  }
+
   if (
     product
       .managedBy
@@ -1684,10 +2223,23 @@ async function verifyCreatedBundle(
     product
       .template
       ?.value !==
-    TEMPLATE_VALUE
+    candidate.templateId
   ) {
     verificationErrors.push(
-      "Falta identificación de plantilla.",
+      "Falta o no coincide la identificación de plantilla.",
+    );
+  }
+
+  if (
+    product
+      .baseProductId
+      ?.value !==
+    candidate
+      .baseProduct
+      .id
+  ) {
+    verificationErrors.push(
+      "Falta o no coincide la identificación del PC base.",
     );
   }
 
@@ -1699,67 +2251,162 @@ async function verifyCreatedBundle(
 
 /* =========================================================
    MAIN
+
+   Rebuilds the current catalog and candidate on the server.
+   The browser sends only candidateId.
 ========================================================= */
 
-export async function createPcMonitorDraftBundle(
+export async function createDraftBundleFromCandidate(
   admin:
     AdminClient,
 
-  candidate:
-    BundleCandidate,
-
-  priceConfig:
-    BundlePriceConfig,
+  candidateId:
+    string,
 ): Promise<CreateDraftBundleResult> {
+  const cleanCandidateId =
+    candidateId.trim();
+
+  if (
+    !cleanCandidateId
+  ) {
+    return {
+      success:
+        false,
+
+      message:
+        "No se recibió la propuesta a crear.",
+    };
+  }
+
   /* -------------------------------------------------------
-     BASIC CANDIDATE VALIDATION
+     1. RELOAD CURRENT CONFIGURATION + CATALOG
   ------------------------------------------------------- */
 
+  const catalog =
+    await loadBundleTemplateCatalog(
+      admin,
+    );
+
   if (
-    candidate.type !==
-    "desktop"
+    catalog.errors.length >
+    0
   ) {
     return {
       success:
         false,
 
       message:
-        "Esta función solo permite crear bundles PC + Monitor.",
+        `No se pudo volver a validar el catálogo: ${formatErrors(
+          catalog.errors,
+        )}`,
     };
   }
 
+  const runtime =
+    await loadBundleRuntimeSettings(
+      admin,
+    );
+
   if (
-    !candidate.monitor
+    runtime.errors.length >
+    0
   ) {
     return {
       success:
         false,
 
       message:
-        "El candidato no tiene monitor.",
+        `No se pudo volver a validar la configuración: ${formatErrors(
+          runtime.errors,
+        )}`,
     };
   }
 
-  const identity =
-    getBundleIdentity(
-      candidate,
+  const state =
+    buildTemplateBundleState(
+      catalog.products,
+      catalog.templates,
+      runtime.componentConfig,
     );
 
-  const price =
-    calculateBundlePrice(
-      candidate,
-      priceConfig,
+  const candidate =
+    state.candidates.find(
+      (item) =>
+        item.id ===
+        cleanCandidateId,
     );
+
+  if (
+    !candidate
+  ) {
+    return {
+      success:
+        false,
+
+      message:
+        "La propuesta ya no es válida. Recarga Bundles y vuelve a revisarla.",
+    };
+  }
+
+  if (
+    !candidate
+      .identity
+      .sku ||
+    candidate
+      .identity
+      .sku ===
+      "SKU pendiente"
+  ) {
+    return {
+      success:
+        false,
+
+      message:
+        "El PC base no tiene SKU. La creación fue bloqueada.",
+    };
+  }
+
+  const normalizedExpectedSku =
+    candidate
+      .identity
+      .sku
+      .trim()
+      .toUpperCase();
+
+  const sameSkuCandidates =
+    state.candidates.filter(
+      (item) =>
+        item
+          .identity
+          .sku
+          .trim()
+          .toUpperCase() ===
+        normalizedExpectedSku,
+    );
+
+  if (
+    sameSkuCandidates.length >
+    1
+  ) {
+    return {
+      success:
+        false,
+
+      message:
+        "Dos o más plantillas están intentando generar el mismo SKU. La creación fue bloqueada.",
+    };
+  }
 
   /* -------------------------------------------------------
-     FRESH COMPONENT VALIDATION
+     2. FRESH COMPONENT VALIDATION
 
-     Sequential deliberately.
+     Sequential deliberately. This runs only after clicking
+     Crear borrador, not during normal page load.
   ------------------------------------------------------- */
 
   const componentRequests: Array<{
     product:
-      ProductNode;
+      TemplateCatalogProduct;
 
     role:
       ComponentRole;
@@ -1835,11 +2482,29 @@ export async function createPcMonitorDraftBundle(
     );
   }
 
-  /* -------------------------------------------------------
-     BASE SKU
-
-     Use fresh variant data.
-  ------------------------------------------------------- */
+  // Shopify permits duplicate SKUs. A selected variant must be the only
+  // exact match in the store before any product creation is attempted.
+  const duplicateSkuIssues = await auditComponentSkuUniqueness(
+    admin,
+    components.map((component) => ({
+      productId: component.product.id,
+      variantId: component.variant.id,
+      sku: component.variant.sku,
+      label: ({
+        pc: "PC",
+        monitor: "Monitor",
+        keyboard_mouse: "Teclado y mouse",
+        wifi_adapter: "Adaptador Wi-Fi",
+      } as Record<ComponentRole, string>)[component.role],
+    })),
+  );
+  if (duplicateSkuIssues.length) {
+    return {
+      success: false,
+      message: "No se creó el Bundle: " +
+        duplicateSkuIssues.map((issue) => issue.message).join(" · "),
+    };
+  }
 
   const baseComponent =
     components.find(
@@ -1848,29 +2513,197 @@ export async function createPcMonitorDraftBundle(
         "pc",
     );
 
-  const baseSku =
+  const freshBaseSku =
     baseComponent
       ?.variant
       .sku
       ?.trim();
 
   if (
-    !baseSku
+    !freshBaseSku
   ) {
     return {
       success:
         false,
 
       message:
-        "El PC base no tiene SKU. La creación fue bloqueada.",
+        "El PC base ya no tiene SKU. La creación fue bloqueada.",
     };
   }
 
-  const expectedSku =
-    `BND-${baseSku}`;
+  const freshExpectedSku =
+    `${candidate.template.skuPrefix}${freshBaseSku}`;
+
+  if (
+    freshExpectedSku !==
+    candidate.identity.sku
+  ) {
+    return {
+      success:
+        false,
+
+      message:
+        "El SKU del PC cambió desde que se generó la propuesta. Recarga Bundles antes de crearla.",
+    };
+  }
+
+  const bundleWeight =
+    getBundleWeightGrams(
+      components,
+    );
+
+  if (
+    bundleWeight
+      .errors
+      .length >
+    0
+  ) {
+    return {
+      success:
+        false,
+
+      message:
+        `No se puede calcular el peso de Bundles: ${formatErrors(
+          bundleWeight.errors,
+        )}`,
+    };
+  }
+
+  if (
+    bundleWeight
+      .weightGrams <=
+    0
+  ) {
+    return {
+      success:
+        false,
+
+      message:
+        "El peso total de Bundles no es válido.",
+    };
+  }
 
   /* -------------------------------------------------------
-     CREATE
+     3. DUPLICATE / SKU CHECK IMMEDIATELY BEFORE MUTATION
+
+     We check only the selected candidate here. The local
+     duplicate check above already protects collisions
+     between active templates.
+  ------------------------------------------------------- */
+
+  const existing =
+    await loadExistingPcMonitorBundleMatches(
+      admin,
+      [
+        candidate,
+      ],
+    );
+
+  if (
+    existing.errors.length >
+    0
+  ) {
+    return {
+      success:
+        false,
+
+      message:
+        `No se pudo comprobar de forma segura si el producto de Bundles ya existe: ${formatErrors(
+          existing.errors,
+        )}`,
+    };
+  }
+
+  const match =
+    existing.matches[0];
+
+  if (
+    !match ||
+    match.status !==
+      "new"
+  ) {
+    return {
+      success:
+        false,
+
+      message:
+        match?.message ??
+        "No fue posible confirmar que la propuesta siga disponible.",
+    };
+  }
+
+  /* -------------------------------------------------------
+     4. CHECK SEO HANDLE BEFORE CREATING ANY PRODUCT
+     Do not create a partial product if another Shopify product
+     already owns the URL we intend to assign.
+  ------------------------------------------------------- */
+  const expectedHandle = buildBundleProductContent(candidate).handle;
+
+  try {
+    const handleResponse = await admin.graphql(`#graphql
+      query CsbyteCheckBundleSeoHandle($identifier: ProductIdentifierInput!) {
+        productByIdentifier(identifier: $identifier) {
+          id
+        }
+      }
+    `, {
+      variables: { identifier: { handle: expectedHandle } },
+    });
+
+    const handleJson = await handleResponse.json() as {
+      data?: { productByIdentifier?: { id: string } | null };
+      errors?: Array<{ message: string }>;
+    };
+
+    if (handleJson.errors?.length || !handleJson.data) {
+      return {
+        success: false,
+        message: "No se pudo verificar la disponibilidad del handle SEO. No se creó ningún producto.",
+      };
+    }
+
+    if (handleJson.data.productByIdentifier) {
+      return {
+        success: false,
+        message: `El handle SEO /products/${expectedHandle} ya está utilizado por otro producto en Shopify. No se creó el Bundles.`,
+      };
+    }
+  } catch (error) {
+    return {
+      success: false,
+      message: "No fue posible comprobar el handle SEO en Shopify: " +
+        (error instanceof Error ? error.message : "error inesperado"),
+    };
+  }
+
+  /* -------------------------------------------------------
+     5. FINAL COMMERCIAL PRICE
+  ------------------------------------------------------- */
+
+  const price =
+    calculateTemplateCandidatePrice(
+      candidate,
+      runtime.priceConfig,
+    );
+
+  if (
+    !Number.isFinite(
+      price.finalPrice,
+    ) ||
+    price.finalPrice <=
+      0
+  ) {
+    return {
+      success:
+        false,
+
+      message:
+        "El precio calculado de Bundles no es válido.",
+    };
+  }
+
+  /* -------------------------------------------------------
+     5. CREATE NATIVE SHOPIFY BUNDLE
   ------------------------------------------------------- */
 
   let creationResult: {
@@ -1885,7 +2718,9 @@ export async function createPcMonitorDraftBundle(
     creationResult =
       await startBundleCreation(
         admin,
-        identity.title,
+        candidate
+          .identity
+          .title,
         components,
       );
   } catch (
@@ -1898,7 +2733,7 @@ export async function createPcMonitorDraftBundle(
       message:
         error instanceof Error
           ? error.message
-          : "No fue posible iniciar la creación del bundle.",
+          : "No fue posible iniciar la creación de Bundles.",
     };
   }
 
@@ -1917,7 +2752,7 @@ export async function createPcMonitorDraftBundle(
   }
 
   /* -------------------------------------------------------
-     WAIT
+     6. WAIT FOR ASYNC PRODUCT OPERATION
   ------------------------------------------------------- */
 
   const operationResult =
@@ -1946,10 +2781,6 @@ export async function createPcMonitorDraftBundle(
   const parent =
     operationResult.product;
 
-  /*
-   * Con nuestra configuración consolidada debe existir
-   * exactamente una variante padre.
-   */
   if (
     parent
       .variants
@@ -1957,6 +2788,12 @@ export async function createPcMonitorDraftBundle(
       .length !==
     1
   ) {
+    const draftFallback =
+      await forceBundleDraft(
+        admin,
+        parent.id,
+      );
+
     return {
       success:
         false,
@@ -1968,7 +2805,14 @@ export async function createPcMonitorDraftBundle(
         parent.id,
 
       message:
-        "Shopify creó el producto, pero generó más de una variante padre. La configuración se detuvo por seguridad. No vuelvas a crearlo.",
+        `Shopify creó el producto, pero generó más de una variante padre. La configuración se detuvo por seguridad.${
+          draftFallback.errors.length >
+          0
+            ? ` Además no fue posible confirmar Borrador: ${formatErrors(
+                draftFallback.errors,
+              )}.`
+            : ""
+        } No vuelvas a crearlo.`,
     };
   }
 
@@ -1978,13 +2822,14 @@ export async function createPcMonitorDraftBundle(
       .nodes[0];
 
   /* -------------------------------------------------------
-     FORCE DRAFT / VENDOR / PRODUCT TYPE
+     7. TEMPLATE IDENTITY + DRAFT
   ------------------------------------------------------- */
 
   const productUpdate =
     await updateBundleProduct(
       admin,
       parent.id,
+      candidate,
     );
 
   if (
@@ -2002,14 +2847,14 @@ export async function createPcMonitorDraftBundle(
         parent.id,
 
       message:
-        `Shopify creó el bundle, pero no fue posible terminar la configuración del producto: ${formatErrors(
+        `Shopify creó el producto de Bundles, pero no fue posible terminar su configuración: ${formatErrors(
           productUpdate.errors,
         )}. No vuelvas a crearlo.`,
     };
   }
 
   /* -------------------------------------------------------
-     PRICE + SKU
+     8. PRICE + SKU
   ------------------------------------------------------- */
 
   const variantUpdate =
@@ -2017,8 +2862,10 @@ export async function createPcMonitorDraftBundle(
       admin,
       parent.id,
       parentVariant.id,
-      expectedSku,
+      freshExpectedSku,
       price.finalPrice,
+      price.componentPrice > price.finalPrice ? price.componentPrice : null,
+      bundleWeight.weightGrams,
     );
 
   if (
@@ -2036,25 +2883,25 @@ export async function createPcMonitorDraftBundle(
         parent.id,
 
       message:
-        `El bundle fue creado como borrador, pero falló la configuración de precio/SKU: ${formatErrors(
+        `El producto de Bundles fue creado como borrador, pero falló la configuración de precio, SKU o peso: ${formatErrors(
           variantUpdate.errors,
         )}. No vuelvas a crearlo.`,
     };
   }
 
   /* -------------------------------------------------------
-     INTERNAL APP METADATA
-
-     Written last intentionally.
+     9. INTERNAL APP METADATA
   ------------------------------------------------------- */
 
   const metadataResult =
     await writeBundleMetadata(
       admin,
       parent.id,
+      candidate,
       components,
-      expectedSku,
+      freshExpectedSku,
       price.finalPrice,
+      bundleWeight.weightGrams,
     );
 
   if (
@@ -2072,22 +2919,25 @@ export async function createPcMonitorDraftBundle(
         parent.id,
 
       message:
-        `El bundle fue creado y configurado, pero no fue posible guardar su identificación interna: ${formatErrors(
+        `El producto de Bundles fue creado y configurado, pero no fue posible guardar su identificación interna: ${formatErrors(
           metadataResult.errors,
-        )}. Quedará bloqueado como bundle legado hasta corregirlo.`,
+        )}. No vuelvas a crearlo.`,
     };
   }
 
   /* -------------------------------------------------------
-     VERIFY
+     10. FINAL AUDIT
   ------------------------------------------------------- */
 
   const verification =
     await verifyCreatedBundle(
       admin,
       parent.id,
-      expectedSku,
+      candidate,
+      freshExpectedSku,
       price.finalPrice,
+      price.componentPrice > price.finalPrice ? price.componentPrice : null,
+      bundleWeight.weightGrams,
     );
 
   if (
@@ -2105,9 +2955,29 @@ export async function createPcMonitorDraftBundle(
         parent.id,
 
       message:
-        `El bundle fue creado, pero la verificación final detectó diferencias: ${formatErrors(
+        `El producto de Bundles fue creado como borrador, pero la verificación final detectó diferencias: ${formatErrors(
           verification.errors,
         )}`,
+    };
+  }
+
+  // The parent has been verified and tagged as managed. Import original
+  // component photos; do not generate imaginary product images.
+  const gallery = await addComponentImagesToEmptyBundle(
+    admin,
+    parent.id,
+    candidate,
+  );
+
+  if (!gallery.success) {
+    return {
+      success: false,
+      partial: true,
+      productId: parent.id,
+      message:
+        "El Bundle se creó como borrador, pero la galería quedó pendiente: " +
+        gallery.message +
+        " No crees otro borrador: utiliza «Agregar fotos de componentes».",
     };
   }
 
@@ -2119,15 +2989,463 @@ export async function createPcMonitorDraftBundle(
       parent.id,
 
     title:
-      identity.title,
+      candidate
+        .identity
+        .title,
 
     sku:
-      expectedSku,
+      freshExpectedSku,
 
     price:
       price.finalPrice,
 
+    compareAtPrice: price.componentPrice > price.finalPrice ? price.componentPrice : null,
+
+    weightGrams:
+      bundleWeight.weightGrams,
+
     message:
-      `Bundle creado correctamente como borrador: ${identity.title}.`,
+      `Producto de Bundles creado como borrador: ${candidate.identity.title}. ${gallery.message}`,
+  };
+}
+
+
+/* =========================================================
+   SYNC WEIGHT ON AN EXISTING BUNDLES PRODUCT
+
+   Used for products created before weight support was added.
+========================================================= */
+
+export async function syncExistingBundleWeightFromCandidate(
+  admin:
+    AdminClient,
+
+  candidateId:
+    string,
+): Promise<CreateDraftBundleResult> {
+  const cleanCandidateId =
+    candidateId.trim();
+
+  if (
+    !cleanCandidateId
+  ) {
+    return {
+      success:
+        false,
+
+      message:
+        "No se recibió la propuesta a actualizar.",
+    };
+  }
+
+  const [
+    catalog,
+    runtime,
+  ] =
+    await Promise.all([
+      loadBundleTemplateCatalog(
+        admin,
+      ),
+
+      loadBundleRuntimeSettings(
+        admin,
+      ),
+    ]);
+
+  if (
+    catalog.errors.length >
+      0 ||
+    runtime.errors.length >
+      0
+  ) {
+    return {
+      success:
+        false,
+
+      message:
+        `No fue posible validar la configuración actual: ${formatErrors([
+          ...catalog.errors,
+          ...runtime.errors,
+        ])}`,
+    };
+  }
+
+  const state =
+    buildTemplateBundleState(
+      catalog.products,
+      catalog.templates,
+      runtime.componentConfig,
+    );
+
+  const candidate =
+    state.candidates.find(
+      (
+        item,
+      ) =>
+        item.id ===
+        cleanCandidateId,
+    );
+
+  if (
+    !candidate
+  ) {
+    return {
+      success:
+        false,
+
+      message:
+        "La propuesta ya no es válida. Recarga Bundles y vuelve a revisarla.",
+    };
+  }
+
+  const existing =
+    await loadExistingPcMonitorBundleMatches(
+      admin,
+      [
+        candidate,
+      ],
+    );
+
+  if (
+    existing.errors.length >
+    0
+  ) {
+    return {
+      success:
+        false,
+
+      message:
+        `No fue posible localizar de forma segura el producto de Bundles existente: ${formatErrors(
+          existing.errors,
+        )}`,
+    };
+  }
+
+  const match =
+    existing.matches[0];
+
+  if (
+    !match ||
+    !match.existingProduct
+  ) {
+    return {
+      success:
+        false,
+
+      message:
+        "No existe un producto de Bundles para esta propuesta.",
+    };
+  }
+
+  const componentRequests: Array<{
+    product:
+      TemplateCatalogProduct;
+
+    role:
+      ComponentRole;
+  }> = [
+    {
+      product:
+        candidate.baseProduct,
+
+      role:
+        "pc",
+    },
+
+    {
+      product:
+        candidate.monitor,
+
+      role:
+        "monitor",
+    },
+
+    {
+      product:
+        candidate.keyboardMouse,
+
+      role:
+        "keyboard_mouse",
+    },
+  ];
+
+  if (
+    candidate.wifiAdapter
+  ) {
+    componentRequests.push({
+      product:
+        candidate.wifiAdapter,
+
+      role:
+        "wifi_adapter",
+    });
+  }
+
+  const components:
+    ComponentDetail[] =
+    [];
+
+  for (
+    const request
+    of componentRequests
+  ) {
+    const result =
+      await loadComponentDetail(
+        admin,
+        request.product,
+        request.role,
+      );
+
+    if (
+      !result.component
+    ) {
+      return {
+        success:
+          false,
+
+        message:
+          formatErrors(
+            result.errors,
+          ),
+      };
+    }
+
+    components.push(
+      result.component,
+    );
+  }
+
+  const bundleWeight =
+    getBundleWeightGrams(
+      components,
+    );
+
+  if (
+    bundleWeight.errors.length >
+      0 ||
+    bundleWeight.weightGrams <=
+      0
+  ) {
+    return {
+      success:
+        false,
+
+      message:
+        `No se puede calcular el peso de Bundles: ${formatErrors(
+          bundleWeight.errors,
+        )}`,
+    };
+  }
+
+  const productResponse =
+    await admin.graphql(
+      `#graphql
+        query CsbyteExistingBundleParentVariant(
+          $id: ID!
+        ) {
+          product(
+            id: $id
+          ) {
+            id
+
+            variants(
+              first: 2
+            ) {
+              nodes {
+                id
+              }
+            }
+          }
+        }
+      `,
+      {
+        variables: {
+          id:
+            match
+              .existingProduct
+              .id,
+        },
+      },
+    );
+
+  const productJson =
+    (await productResponse.json()) as {
+      data?: {
+        product?:
+          | {
+              id:
+                string;
+
+              variants: {
+                nodes: Array<{
+                  id:
+                    string;
+                }>;
+              };
+            }
+          | null;
+      };
+
+      errors?: Array<{
+        message:
+          string;
+      }>;
+    };
+
+  const productErrors =
+    getGraphqlErrors(
+      productJson,
+    );
+
+  const product =
+    productJson.data
+      ?.product;
+
+  if (
+    productErrors.length >
+      0 ||
+    !product ||
+    product
+      .variants
+      .nodes
+      .length !==
+      1
+  ) {
+    return {
+      success:
+        false,
+
+      message:
+        productErrors.length >
+          0
+          ? formatErrors(
+              productErrors,
+            )
+          : "El producto de Bundles no tiene exactamente una variante padre.",
+    };
+  }
+
+  const variantId =
+    product
+      .variants
+      .nodes[0]
+      .id;
+
+  const updateResponse =
+    await admin.graphql(
+      `#graphql
+        mutation CsbyteSyncBundleWeight(
+          $productId: ID!
+          $variants: [ProductVariantsBulkInput!]!
+        ) {
+          productVariantsBulkUpdate(
+            productId: $productId
+            variants: $variants
+          ) {
+            productVariants {
+              id
+
+              inventoryItem {
+                measurement {
+                  weight {
+                    value
+                    unit
+                  }
+                }
+              }
+            }
+
+            userErrors {
+              field
+              message
+            }
+          }
+        }
+      `,
+      {
+        variables: {
+          productId:
+            product.id,
+
+          variants: [
+            {
+              id:
+                variantId,
+
+              inventoryItem: {
+                measurement: {
+                  weight: {
+                    value: Number((bundleWeight.weightGrams / 1000).toFixed(3)),
+                    unit: "KILOGRAMS",
+                  },
+                },
+              },
+            },
+          ],
+        },
+      },
+    );
+
+  const updateJson =
+    (await updateResponse.json()) as {
+      data?: {
+        productVariantsBulkUpdate?: {
+          userErrors?: Array<{
+            message:
+              string;
+          }>;
+        };
+      };
+
+      errors?: Array<{
+        message:
+          string;
+      }>;
+    };
+
+  const updateErrors = [
+    ...getGraphqlErrors(
+      updateJson,
+    ),
+
+    ...(updateJson.data
+      ?.productVariantsBulkUpdate
+      ?.userErrors
+      ?.map(
+        (
+          error,
+        ) =>
+          error.message,
+      ) ??
+      []),
+  ];
+
+  if (
+    updateErrors.length >
+    0
+  ) {
+    return {
+      success:
+        false,
+
+      message:
+        `No fue posible actualizar el peso: ${formatErrors(
+          updateErrors,
+        )}`,
+    };
+  }
+
+  return {
+    success:
+      true,
+
+    productId:
+      product.id,
+
+    weightGrams:
+      bundleWeight.weightGrams,
+
+    message:
+      `Peso actualizado correctamente: ${(bundleWeight.weightGrams / 1000).toFixed(3)} kg.`,
   };
 }

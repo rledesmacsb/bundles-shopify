@@ -97,6 +97,10 @@ export type ExistingBundleProduct = {
 
   productType: string;
 
+  publishedAt:
+    | string
+    | null;
+
   sku:
     | string
     | null;
@@ -205,6 +209,10 @@ type BundleShellNode = {
 
   productType: string;
 
+  publishedAt:
+    | string
+    | null;
+
   variants: {
     nodes: Array<{
       id: string;
@@ -263,6 +271,10 @@ type SkuVariantNode = {
     status: string;
 
     productType: string;
+
+    publishedAt:
+      | string
+      | null;
   };
 };
 
@@ -624,6 +636,7 @@ async function fetchExistingBundles(
                   handle
                   status
                   productType
+                  publishedAt
 
                   variants(
                     first: 1
@@ -771,7 +784,7 @@ async function fetchExistingBundles(
             .hasNextPage
         ) {
           errors.push(
-            `El bundle "${product.title}" tiene más de ${BUNDLE_COMPONENT_LIMIT} componentes. No se continuará hasta aumentar el límite de forma controlada.`,
+            `El producto de Bundles "${product.title}" tiene más de ${BUNDLE_COMPONENT_LIMIT} componentes. No se continuará hasta aumentar el límite de forma controlada.`,
           );
 
           break;
@@ -803,6 +816,9 @@ async function fetchExistingBundles(
 
           productType:
             product.productType,
+
+          publishedAt:
+            product.publishedAt,
 
           sku:
             product
@@ -1104,10 +1120,12 @@ async function searchExactSkuBatch(
         )}"`,
     );
 
+  // Include draft products explicitly. A newly-created Bundle remains
+  // DRAFT and must not be treated as an available SKU on the next load.
   const query =
     `(${terms.join(
       " OR ",
-    )})`;
+    )}) AND product_status:ACTIVE,DRAFT,ARCHIVED,UNLISTED`;
 
   try {
     const response =
@@ -1130,6 +1148,7 @@ async function searchExactSkuBatch(
                   handle
                   status
                   productType
+                  publishedAt
                 }
               }
             }
@@ -1246,6 +1265,11 @@ async function searchExactSkuBatch(
               .product
               .productType,
 
+          publishedAt:
+            variant
+              .product
+              .publishedAt,
+
           sku:
             variant.sku,
 
@@ -1286,6 +1310,290 @@ async function searchExactSkuBatch(
       ],
     };
   }
+}
+
+/* =========================================================
+   TARGETED MANAGED-BUNDLE CHECK
+
+   Product search indexes can lag briefly after creating a
+   DRAFT bundle. If the SKU search already finds a product,
+   query that exact product by ID and inspect our metafields
+   directly before reporting a SKU conflict.
+========================================================= */
+
+async function fetchManagedBundleIdentity(
+  admin:
+    AdminClient,
+
+  productId:
+    string,
+) {
+  try {
+    const response =
+      await admin.graphql(
+        `#graphql
+          query CsbyteManagedBundleIdentity(
+            $id: ID!
+          ) {
+            product(
+              id: $id
+            ) {
+              id
+              title
+              handle
+              status
+              productType
+              publishedAt
+
+              variants(
+                first: 1
+              ) {
+                nodes {
+                  id
+                  sku
+                }
+              }
+
+              managedByMeta: metafield(
+                namespace: "${BUNDLE_META_NAMESPACE}"
+                key: "${BUNDLE_MANAGED_BY_KEY}"
+              ) {
+                value
+              }
+
+              templateMeta: metafield(
+                namespace: "${BUNDLE_META_NAMESPACE}"
+                key: "${BUNDLE_TEMPLATE_KEY}"
+              ) {
+                value
+              }
+
+              baseProductIdMeta: metafield(
+                namespace: "${BUNDLE_META_NAMESPACE}"
+                key: "${BUNDLE_BASE_PRODUCT_ID_KEY}"
+              ) {
+                value
+              }
+            }
+          }
+        `,
+        {
+          variables: {
+            id:
+              productId,
+          },
+        },
+      );
+
+    const json =
+      (await response.json()) as {
+        data?: {
+          product?:
+            | {
+                id:
+                  string;
+
+                title:
+                  string;
+
+                handle:
+                  string;
+
+                status:
+                  string;
+
+                productType:
+                  string;
+
+                publishedAt:
+                  | string
+                  | null;
+
+                variants: {
+                  nodes: Array<{
+                    id:
+                      string;
+
+                    sku:
+                      | string
+                      | null;
+                  }>;
+                };
+
+                managedByMeta?:
+                  | {
+                      value:
+                        string;
+                    }
+                  | null;
+
+                templateMeta?:
+                  | {
+                      value:
+                        string;
+                    }
+                  | null;
+
+                baseProductIdMeta?:
+                  | {
+                      value:
+                        string;
+                    }
+                  | null;
+              }
+            | null;
+        };
+
+        errors?: Array<{
+          message:
+            string;
+        }>;
+      };
+
+    const errors =
+      getGraphqlErrors(
+        json,
+      );
+
+    if (
+      errors.length >
+      0
+    ) {
+      return {
+        product:
+          null as ExistingBundleProduct | null,
+
+        errors,
+      };
+    }
+
+    const product =
+      json.data
+        ?.product;
+
+    if (
+      !product
+    ) {
+      return {
+        product:
+          null as ExistingBundleProduct | null,
+
+        errors: [
+          "Shopify no devolvió el producto encontrado por SKU.",
+        ],
+      };
+    }
+
+    return {
+      product: {
+        id:
+          product.id,
+
+        title:
+          product.title,
+
+        handle:
+          product.handle,
+
+        status:
+          product.status,
+
+        productType:
+          product.productType,
+
+        publishedAt:
+          product.publishedAt,
+
+        sku:
+          product
+            .variants
+            .nodes[0]
+            ?.sku ??
+          null,
+
+        managedBy:
+          parseStoredString(
+            product
+              .managedByMeta
+              ?.value,
+          ),
+
+        template:
+          parseStoredString(
+            product
+              .templateMeta
+              ?.value,
+          ),
+
+        baseProductId:
+          parseStoredString(
+            product
+              .baseProductIdMeta
+              ?.value,
+          ),
+
+        componentProductIds:
+          [],
+
+        componentProducts:
+          [],
+      },
+
+      errors:
+        [] as string[],
+    };
+  } catch (
+    error
+  ) {
+    return {
+      product:
+        null as ExistingBundleProduct | null,
+
+      errors: [
+        error instanceof Error
+          ? error.message
+          : "No fue posible comprobar el producto encontrado por SKU.",
+      ],
+    };
+  }
+}
+
+function isManagedProductForCandidate(
+  product:
+    ExistingBundleProduct,
+
+  candidate:
+    TemplateBundleCandidate,
+) {
+  if (
+    product.managedBy !==
+    BUNDLE_MANAGED_BY_VALUE
+  ) {
+    return false;
+  }
+
+  if (
+    product.baseProductId !==
+    candidate
+      .baseProduct
+      .id
+  ) {
+    return false;
+  }
+
+  if (
+    product.template ===
+    candidate.templateId
+  ) {
+    return true;
+  }
+
+  return (
+    candidate.templateId ===
+      "pc_monitor_new" &&
+    product.template ===
+      OLD_TEMPLATE_PC_MONITOR
+  );
 }
 
 /* =========================================================
@@ -1539,7 +1847,7 @@ export async function loadExistingPcMonitorBundleMatches(
             managed,
 
           message:
-            `Ya existe un bundle administrado por la plantilla "${candidate.templateName}".`,
+            `Ya existe un producto de Bundles administrado por la plantilla "${candidate.templateName}".`,
         },
       );
 
@@ -1585,8 +1893,8 @@ export async function loadExistingPcMonitorBundleMatches(
 
           message:
             managedByApp
-              ? `Ya existe un bundle administrado para la plantilla "${candidate.templateName}".`
-              : `Shopify ya tiene un bundle nativo para este PC que corresponde a la plantilla "${candidate.templateName}".`,
+              ? `Ya existe un producto de Bundles administrado para la plantilla "${candidate.templateName}".`
+              : `Shopify ya tiene un producto de Bundles nativo para este PC que corresponde a la plantilla "${candidate.templateName}".`,
         },
       );
 
@@ -1707,6 +2015,93 @@ export async function loadExistingPcMonitorBundleMatches(
       if (
         conflict
       ) {
+        /*
+         * A newly-created DRAFT bundle can appear in the SKU
+         * search before the broader bundles:true product
+         * search has refreshed. Inspect the exact product by
+         * ID before classifying it as a conflict.
+         */
+        const identityResult =
+          await fetchManagedBundleIdentity(
+            admin,
+            conflict.id,
+          );
+
+        if (
+          identityResult.errors.length >
+          0
+        ) {
+          errors.push(
+            ...identityResult.errors,
+          );
+
+          resultByCandidateId.set(
+            candidate.id,
+            {
+              candidateId:
+                candidate.id,
+
+              baseProductId:
+                candidate
+                  .baseProduct
+                  .id,
+
+              templateId:
+                candidate.templateId,
+
+              expectedSku,
+
+              status:
+                "lookup_error",
+
+              existingProduct:
+                conflict,
+
+              message:
+                "El SKU existe, pero no fue posible comprobar de forma segura si corresponde al producto de Bundles recién creado.",
+            },
+          );
+
+          continue;
+        }
+
+        if (
+          identityResult.product &&
+          isManagedProductForCandidate(
+            identityResult.product,
+            candidate,
+          )
+        ) {
+          resultByCandidateId.set(
+            candidate.id,
+            {
+              candidateId:
+                candidate.id,
+
+              baseProductId:
+                candidate
+                  .baseProduct
+                  .id,
+
+              templateId:
+                candidate.templateId,
+
+              expectedSku,
+
+              status:
+                "existing_managed",
+
+              existingProduct:
+                identityResult.product,
+
+              message:
+                `Ya existe un producto de Bundles administrado por la plantilla "${candidate.templateName}".`,
+            },
+          );
+
+          continue;
+        }
+
         resultByCandidateId.set(
           candidate.id,
           {
@@ -1727,6 +2122,7 @@ export async function loadExistingPcMonitorBundleMatches(
               "sku_conflict",
 
             existingProduct:
+              identityResult.product ??
               conflict,
 
             message:

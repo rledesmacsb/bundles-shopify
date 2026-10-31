@@ -358,34 +358,22 @@ export async function loadPcMonitorBundleData(
   admin:
     AdminClient,
 ): Promise<PcMonitorBundleData> {
-  const shopResponse =
-    await admin.graphql(
-      `#graphql
-        query CsbyteBundleShop {
-          shop {
-            currencyCode
+  const [
+    shopResponse,
+    configResponse,
+  ] =
+    await Promise.all([
+      admin.graphql(
+        `#graphql
+          query CsbyteBundleShop {
+            shop {
+              currencyCode
+            }
           }
-        }
-      `,
-    );
+        `,
+      ),
 
-  const shopJson =
-    (await shopResponse.json()) as {
-      data?: {
-        shop?: {
-          currencyCode?:
-            string;
-        };
-      };
-
-      errors?: Array<{
-        message:
-          string;
-      }>;
-    };
-
-  const configResponse =
-    await admin.graphql(
+      admin.graphql(
       `#graphql
         query CsbyteBundleConfiguration {
           currentAppInstallation {
@@ -461,7 +449,23 @@ export async function loadPcMonitorBundleData(
           }
         }
       `,
-    );
+      ),
+    ]);
+
+  const shopJson =
+    (await shopResponse.json()) as {
+      data?: {
+        shop?: {
+          currencyCode?:
+            string;
+        };
+      };
+
+      errors?: Array<{
+        message:
+          string;
+      }>;
+    };
 
   const configJson =
     (await configResponse.json()) as {
@@ -645,19 +649,28 @@ export async function loadPcMonitorBundleData(
     ];
 
   /*
-   * Secuencial intencionalmente.
-   * Una consulta por tipo de producto.
+   * Product-type lookups are independent and each query is
+   * already bounded to one product type. Running them in
+   * parallel removes several Shopify round trips without
+   * increasing the cost of any individual GraphQL request.
    */
-  for (
-    const productType
-    of productTypes
-  ) {
-    const result =
-      await fetchProductsByType(
-        admin,
-        productType,
-      );
+  const productResults =
+    await Promise.all(
+      productTypes.map(
+        (
+          productType,
+        ) =>
+          fetchProductsByType(
+            admin,
+            productType,
+          ),
+      ),
+    );
 
+  for (
+    const result
+    of productResults
+  ) {
     products.push(
       ...result.products,
     );

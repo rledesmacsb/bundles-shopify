@@ -1020,31 +1020,33 @@ async function loadBaseProductCatalog(
     safeProductTypes
   ) {
     /*
-     * Sequential by product type.
-     *
-     * Usually this means only a few queries:
-     * - PC de Escritorio
-     * - Monitor
-     * - Combo Teclado y Mouse
-     * - Adaptador WiFi
-     *
-     * If one type has >20 products it is paginated.
+     * Each product type keeps its own bounded GraphQL query.
+     * We only run the independent type lookups concurrently,
+     * so query cost stays controlled while removing several
+     * network round trips from the critical path.
      */
-    for (
-      const productType
-      of safeProductTypes
-    ) {
-      const result =
-        await loadProductsForQuery(
-          admin,
-
-          `product_type:"${escapeSearchValue(
+    const results =
+      await Promise.all(
+        safeProductTypes.map(
+          (
             productType,
-          )}" AND inventory_total:>0`,
+          ) =>
+            loadProductsForQuery(
+              admin,
 
-          metafieldReferences,
-        );
+              `product_type:"${escapeSearchValue(
+                productType,
+              )}" AND inventory_total:>0`,
 
+              metafieldReferences,
+            ),
+        ),
+      );
+
+    for (
+      const result
+      of results
+    ) {
       products.push(
         ...result.products,
       );
@@ -1052,16 +1054,6 @@ async function loadBaseProductCatalog(
       errors.push(
         ...result.errors,
       );
-
-      /*
-       * Fail closed.
-       */
-      if (
-        result.errors.length >
-        0
-      ) {
-        break;
-      }
     }
   } else {
     /* -----------------------------------------------------
@@ -1124,16 +1116,29 @@ export async function loadBundleTemplateCatalog(
     [];
 
   /* -------------------------------------------------------
-     1. TEMPLATES
+     1. TEMPLATES + CURRENCY
+
+     They are independent Shopify reads, so they can run in
+     parallel without increasing individual query cost.
   ------------------------------------------------------- */
 
-  const templateResult =
-    await loadRuntimeTemplates(
-      admin,
-    );
+  const [
+    templateResult,
+    currencyResult,
+  ] =
+    await Promise.all([
+      loadRuntimeTemplates(
+        admin,
+      ),
+
+      loadShopCurrency(
+        admin,
+      ),
+    ]);
 
   errors.push(
     ...templateResult.errors,
+    ...currencyResult.errors,
   );
 
   const templates =
@@ -1173,20 +1178,7 @@ export async function loadBundleTemplateCatalog(
   }
 
   /* -------------------------------------------------------
-     3. CURRENCY
-  ------------------------------------------------------- */
-
-  const currencyResult =
-    await loadShopCurrency(
-      admin,
-    );
-
-  errors.push(
-    ...currencyResult.errors,
-  );
-
-  /* -------------------------------------------------------
-     4. CATALOG
+     3. CATALOG
 
      Exact metafields are now included in every product page.
   ------------------------------------------------------- */
