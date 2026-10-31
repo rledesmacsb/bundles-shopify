@@ -6,6 +6,7 @@ import type {
 import { useFetcher, useLoaderData, useRouteError } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate, registerWebhooks, unauthenticated } from "../shopify.server";
+import { isAllowedShop } from "../lib/shop-allowlist.server";
 import {
   runManagedBundleSync,
   type BundleSyncReport,
@@ -36,6 +37,9 @@ async function readPreviousReport(admin: Admin): Promise<BundleSyncReport | null
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
+  if (!isAllowedShop(session.shop)) {
+    throw new Response("Tienda no autorizada para esta aplicación.", { status: 403 });
+  }
   // Fetch the last verified report without blocking on a full catalog scan.
   // The costly scan is explicitly requested or run by daily Cron.
   const previousReportPromise = readPreviousReport(admin);
@@ -92,7 +96,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { admin } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
+  if (!isAllowedShop(session.shop)) {
+    throw new Response("Tienda no autorizada para sincronización.", { status: 403 });
+  }
   const form = await request.formData();
   if (form.get("intent") !== "reconcile") {
     return { report: null, message: "Operación no reconocida." };
