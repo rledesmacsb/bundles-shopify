@@ -68,6 +68,7 @@ import {
 } from "../lib/bundle-publish.server";
 
 import { buildBundleProductContent } from "../lib/bundle-description";
+import { isAllowedShop } from "../lib/shop-allowlist.server";
 import { completeMissingBundleContent } from "../lib/bundle-description.server";
 import { completeMissingBundleCompareAtPrice } from "../lib/bundle-compare-price.server";
 import { addImagesToExistingManagedBundle } from "../lib/bundle-images.server";
@@ -87,6 +88,9 @@ export const loader =
       await authenticate.admin(
         request,
       );
+    if (!isAllowedShop(session.shop)) {
+      throw new Response("Tienda no autorizada para CSBYTE Bundles.", { status: 403 });
+    }
 
     const [
       catalog,
@@ -177,6 +181,9 @@ export const action =
       await authenticate.admin(
         request,
       );
+    if (!isAllowedShop(session.shop)) {
+      throw new Response("Tienda no autorizada para modificar Bundles.", { status: 403 });
+    }
 
     const formData =
       await request.formData();
