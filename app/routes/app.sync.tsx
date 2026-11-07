@@ -8,6 +8,7 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate, registerWebhooks, unauthenticated } from "../shopify.server";
 import { isAllowedShop } from "../lib/shop-allowlist.server";
 import { loadLiveBundleSnapshot } from "../lib/bundle-live-status.server";
+import { parseDailyCronStatus } from "../lib/bundle-cron-status.server";
 import {
   runManagedBundleSync,
   type BundleSyncReport,
@@ -15,12 +16,18 @@ import {
 
 type Admin = { graphql: (query: string, options?: any) => Promise<any> };
 
-async function readPreviousReport(admin: Admin): Promise<BundleSyncReport | null> {
+async function readPreviousReport(admin: Admin): Promise<{
+  report: BundleSyncReport | null;
+  dailyCron: ReturnType<typeof parseDailyCronStatus>;
+}> {
   try {
     const response = await admin.graphql(`#graphql
       query CsbyteGetLastBundleSync {
         currentAppInstallation {
           report: metafield(namespace: "app_config", key: "bundle_sync_last_report") {
+            value
+          }
+          dailyCron: metafield(namespace: "app_config", key: "bundle_daily_cron_status") {
             value
           }
         }
@@ -29,10 +36,13 @@ async function readPreviousReport(admin: Admin): Promise<BundleSyncReport | null
     const data = await response.json();
     const value = data?.data?.currentAppInstallation?.report?.value;
     const parsed = value ? JSON.parse(value) : null;
-    return parsed && typeof parsed.checkedAt === "string" &&
-      Array.isArray(parsed.rows) ? parsed as BundleSyncReport : null;
+    return {
+      report: parsed && typeof parsed.checkedAt === "string" &&
+        Array.isArray(parsed.rows) ? parsed as BundleSyncReport : null,
+      dailyCron: parseDailyCronStatus(data?.data?.currentAppInstallation?.dailyCron?.value),
+    };
   } catch {
-    return null;
+    return { report: null, dailyCron: null };
   }
 }
 
@@ -119,8 +129,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       ? error.message
       : "No fue posible registrar el webhook.";
   }
-  const [lastReport, liveSnapshot] = await Promise.all([previousReportPromise, liveSnapshotPromise]);
-  return { lastReport, liveSnapshot, deleteWebhookReady, deleteWebhookError, inventoryWebhookReady, priceWebhookReady };
+  const [previous, liveSnapshot] = await Promise.all([previousReportPromise, liveSnapshotPromise]);
+  return { lastReport: previous.report, dailyCron: previous.dailyCron, liveSnapshot,
+    deleteWebhookReady, deleteWebhookError, inventoryWebhookReady, priceWebhookReady };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -231,10 +242,37 @@ export default function BundleSync() {
               Los cambios de precio se procesan por webhook y se revisan nuevamente una vez al día.
               Si alguien modifica manualmente el precio del Bundle, la app no lo sobrescribe.
             </s-text>
+            <s-paragraph>
+              Auditoría programada: todos los días a las 08:00 UTC.
+            </s-paragraph>
+            {initial.dailyCron ? (
+              <s-stack gap="small">
+                {initial.dailyCron.ok ? (
+                  <s-badge tone="success">Último cron ejecutado correctamente</s-badge>
+                ) : (
+                  <s-badge tone="critical">Último cron con errores</s-badge>
+                )}
+                <s-text tone="neutral">
+                  Ejecución verificada: {new Date(initial.dailyCron.checkedAt).toLocaleString("es-CL")} ·
+                  {initial.dailyCron.checked} revisados · {initial.dailyCron.updated} actualizados ·
+                  {initial.dailyCron.unpublished} pasados a borrador.
+                </s-text>
+                {initial.dailyCron.errors.length > 0 && (
+                  <s-banner heading="Incidencias del cron" tone="warning">
+                    {initial.dailyCron.errors.join(" · ")}
+                  </s-banner>
+                )}
+              </s-stack>
+            ) : (
+              <s-text tone="neutral">
+                Todavía no se ha verificado una ejecución programada desde la aplicación.
+                Esto no equivale a un error del cron.
+              </s-text>
+            )}
             {last && (
               <s-text tone="neutral">
-                Último control guardado: {new Date(last.checkedAt).toLocaleString("es-CL")}.
-                Fichas sincronizadas: {last.updated}.
+                Última sincronización guardada: {new Date(last.checkedAt).toLocaleString("es-CL")}.
+                Fichas sincronizadas: {last.updated}. Puede ser manual o programada.
               </s-text>
             )}
           </s-stack>
