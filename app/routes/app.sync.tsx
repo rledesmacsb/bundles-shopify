@@ -101,15 +101,23 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     throw new Response("Tienda no autorizada para sincronización.", { status: 403 });
   }
   const form = await request.formData();
-  if (form.get("intent") !== "reconcile") {
-    return { report: null, message: "Operación no reconocida." };
+  const intent = form.get("intent");
+  if (intent !== "audit" && intent !== "reconcile") {
+    return { report: null, message: "Operación no reconocida.", readOnly: true };
   }
-  const report = await runManagedBundleSync(admin, { apply: true, saveReport: true });
+  const readOnly = intent === "audit";
+  const report = await runManagedBundleSync(admin, {
+    apply: !readOnly,
+    saveReport: !readOnly,
+  });
   return {
     report,
+    readOnly,
     message: report.errors.length
       ? "La revisión necesita atención."
-      : `Revisados ${report.total} Bundles. Fichas sincronizadas: ${report.updated}. Despublicados por seguridad: ${report.unpublished}.`,
+      : readOnly
+        ? `Diagnóstico sin cambios: ${report.total} Bundles revisados, ${report.requiresAttention} con observaciones.`
+        : `Revisados ${report.total} Bundles. Fichas sincronizadas: ${report.updated}. Despublicados por seguridad: ${report.unpublished}.`,
   };
 };
 
@@ -118,7 +126,8 @@ export default function BundleSync() {
   const fetcher = useFetcher<typeof action>();
   const report = fetcher.data?.report ?? initial.lastReport;
   const running = fetcher.state !== "idle";
-  const last = fetcher.data?.report && !fetcher.data.report.errors.length
+  const last = fetcher.data?.report && !fetcher.data.readOnly &&
+    !fetcher.data.report.errors.length
     ? fetcher.data.report : initial.lastReport;
 
   return (
@@ -155,11 +164,22 @@ export default function BundleSync() {
               </s-banner>
             )}
             <fetcher.Form method="post">
-              <input type="hidden" name="intent" value="reconcile" />
+              <input type="hidden" name="intent" value="audit" />
               <s-button type="submit" variant="primary" disabled={running}>
-                {running ? "Comprobando…" : "Revisar y sincronizar ahora"}
+                {running ? "Comprobando…" : "Diagnóstico sin modificar productos"}
               </s-button>
             </fetcher.Form>
+            <fetcher.Form method="post">
+              <input type="hidden" name="intent" value="reconcile" />
+              <s-button type="submit" disabled={running}>
+                Revisar y aplicar sincronización
+              </s-button>
+            </fetcher.Form>
+            {fetcher.data?.readOnly && (
+              <s-banner heading="Diagnóstico de solo lectura">
+                No se cambiaron precios, inventario ni estados de publicación.
+              </s-banner>
+            )}
             <s-text tone="neutral">
               Revisión programada una vez al día. Los cambios no son instantáneos.
               Si alguien modifica manualmente el precio del Bundle, la app no lo sobrescribe.
@@ -177,7 +197,7 @@ export default function BundleSync() {
           <s-stack gap="base">
             {!report && (
               <s-paragraph>
-                No hay una revisión guardada. Selecciona «Revisar y sincronizar ahora»
+                No hay una revisión guardada. Selecciona «Diagnóstico sin modificar productos»
                 para comprobar los componentes.
               </s-paragraph>
             )}
