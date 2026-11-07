@@ -47,14 +47,14 @@ function createFixture(options = {}) {
     sku:"BND-TEST-9010", price:String(price), compareAtPrice:"160000", inventoryQuantity:8 };
   const bundle = {
     id:"gid://shopify/Product/90000", title:"Bundle de prueba",
-    status:"DRAFT", totalInventory:8,
+    status:options.bundleStatus || "DRAFT", totalInventory:8,
     managedBy:{value:"csbyte-commerce-tools"},
     snapshotMeta:{value:JSON.stringify(snapshot),compareDigest:null},
     variants:{nodes:[parent]},
     bundleComponents:{ nodes:sources.map((p,i)=>({
       quantity:1,
-      componentProduct:{id:p.id,title:p.title,status:i===1?status:"ACTIVE",totalInventory:20},
-      componentVariants:{nodes:[{id:p.variant,sku:p.sku,price:p.price,inventoryQuantity:20}],
+      componentProduct:{id:p.id,title:p.title,status:i===1?status:"ACTIVE",totalInventory:i===1?(options.monitorStock ?? 20):20},
+      componentVariants:{nodes:[{id:p.variant,sku:p.sku,price:p.price,inventoryQuantity:i===1?(options.monitorStock ?? 20):20}],
         pageInfo:{hasNextPage:false}},
     })),pageInfo:{hasNextPage:false}},
   };
@@ -70,6 +70,17 @@ function createFixture(options = {}) {
       data = {productVariantsBulkUpdate:{
         productVariants:[{id:parent.id,price:parent.price,compareAtPrice:parent.compareAtPrice}],
         userErrors:[],
+      }};
+    } else if (operation.includes("CsbyteRecheckBundleBeforeDraft")) {
+      if (options.restoreStockBeforeRecheck) {
+        bundle.bundleComponents.nodes[1].componentProduct.totalInventory = 20;
+        bundle.bundleComponents.nodes[1].componentVariants.nodes[0].inventoryQuantity = 20;
+      }
+      data = { product: bundle };
+    } else if (operation.includes("CsbyteDisableInvalidBundle")) {
+      bundle.status = variables.input.status;
+      data = { productUpdate: {
+        product: {id: bundle.id, status: bundle.status}, userErrors:[],
       }};
     } else if (operation.includes("CsbyteUpdateBundlePriceSnapshot")) {
       snapshot = JSON.parse(variables.inputs[0].value);
@@ -131,4 +142,33 @@ test("unpublished monitor blocks price update",async()=>{
   assert.equal(report.updated,0);
   assert.equal(f.updates.length,0);
   assert.match(report.rows[0].issues.join(" "),/no publicado/);
+});
+
+test("active Bundle with zero component stock is changed to draft on apply",async()=>{
+  const f=createFixture({bundleStatus:"ACTIVE",monitorStock:0});
+  const report=await f.run(true);
+  assert.equal(report.errors.length,0);
+  assert.equal(report.unpublished,1);
+  assert.equal(report.rows[0].status,"DRAFT");
+  assert.equal(f.bundle.status,"DRAFT");
+  assert.equal(f.updates.length,0);
+  assert.match(report.rows[0].issues.join(" "),/sin stock/);
+});
+
+test("read-only audit flags out-of-stock Bundle without changing its status",async()=>{
+  const f=createFixture({bundleStatus:"ACTIVE",monitorStock:0});
+  const report=await f.run(false);
+  assert.equal(report.unpublished,0);
+  assert.equal(f.bundle.status,"ACTIVE");
+  assert.equal(f.updates.length,0);
+  assert.match(report.rows[0].issues.join(" "),/sin stock/);
+});
+
+test("rechecked recovered stock prevents unnecessary unpublication",async()=>{
+  const f=createFixture({bundleStatus:"ACTIVE",monitorStock:0,restoreStockBeforeRecheck:true});
+  const report=await f.run(true);
+  assert.equal(report.errors.length,0);
+  assert.equal(report.unpublished,0);
+  assert.equal(f.bundle.status,"ACTIVE");
+  assert.match(report.rows[0].issues.join(" "),/disponibilidad cambió/);
 });
