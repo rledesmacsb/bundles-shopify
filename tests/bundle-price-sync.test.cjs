@@ -165,13 +165,13 @@ test("unpublished monitor blocks price update",async()=>{
   assert.match(report.rows[0].issues.join(" "),/no publicado/);
 });
 
-test("active Bundle with zero component stock is changed to draft on apply",async()=>{
+test("daily audit keeps native Bundle active at zero stock",async()=>{
   const f=createFixture({bundleStatus:"ACTIVE",monitorStock:0});
   const report=await f.run(true);
   assert.equal(report.errors.length,0);
-  assert.equal(report.unpublished,1);
-  assert.equal(report.rows[0].status,"DRAFT");
-  assert.equal(f.bundle.status,"DRAFT");
+  assert.equal(report.unpublished,0);
+  assert.equal(report.rows[0].status,"ACTIVE");
+  assert.equal(f.bundle.status,"ACTIVE");
   assert.equal(f.updates.length,0);
   assert.match(report.rows[0].issues.join(" "),/sin stock/);
 });
@@ -185,13 +185,13 @@ test("read-only audit flags out-of-stock Bundle without changing its status",asy
   assert.match(report.rows[0].issues.join(" "),/sin stock/);
 });
 
-test("rechecked recovered stock prevents unnecessary unpublication",async()=>{
-  const f=createFixture({bundleStatus:"ACTIVE",monitorStock:0,restoreStockBeforeRecheck:true});
+test("replenished Bundle stays active and price audit can proceed",async()=>{
+  const f=createFixture({bundleStatus:"ACTIVE",monitorStock:9});
   const report=await f.run(true);
   assert.equal(report.errors.length,0);
   assert.equal(report.unpublished,0);
   assert.equal(f.bundle.status,"ACTIVE");
-  assert.match(report.rows[0].issues.join(" "),/disponibilidad cambió/);
+  assert.equal(report.updated,1);
 });
 
 test("product update only processes Bundles referencing the changed component",async()=>{
@@ -254,4 +254,13 @@ test("does not write weight when component weight is missing",async()=>{
   const report=await f.run(true);
   assert.equal(f.weightUpdates.length,0);
   assert.match(report.rows[0].issues.join(" "),/peso válido/);
+});
+
+test("daily audit drafts published Bundle when a component is inactive",async()=>{
+  const f=createFixture({bundleStatus:"ACTIVE",componentStatus:"DRAFT",monitorStock:20});
+  const report=await f.run(true);
+  assert.equal(report.errors.length,0);
+  assert.equal(report.unpublished,1);
+  assert.equal(f.bundle.status,"DRAFT");
+  assert.equal(f.updates.length,0);
 });
