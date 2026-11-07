@@ -395,7 +395,7 @@ async function writeReport(admin: Admin, report: BundleSyncReport) {
 
 export async function runManagedBundleSync(
   admin: Admin,
-  options: { apply: boolean; saveReport?: boolean },
+  options: { apply: boolean; saveReport?: boolean; changedComponentProductId?: string },
 ): Promise<BundleSyncReport> {
   const report: BundleSyncReport = {
     checkedAt: new Date().toISOString(),
@@ -415,7 +415,15 @@ export async function runManagedBundleSync(
       loadBundleRuntimeSettings(admin),
     ]);
     if (runtime.errors.length) throw new Error(runtime.errors.join(" · "));
-    bundles = products;
+    bundles = options.changedComponentProductId
+      ? products.filter((product) => {
+          const snapshot = parseSnapshot(product);
+          if (!snapshot) return false;
+          return [snapshot.base, snapshot.monitor, snapshot.keyboardMouse,
+            ...(snapshot.wifiAdapter ? [snapshot.wifiAdapter] : [])]
+            .some((component) => component.productId === options.changedComponentProductId);
+        })
+      : products;
     report.priceRuleConfigured = runtime.priceConfig.configured;
 
     // One shared batched lookup per distinct component, not a separate
