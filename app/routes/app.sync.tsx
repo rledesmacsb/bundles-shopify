@@ -46,6 +46,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   // This shop-specific subscription is owned by CSBYTE Bundles itself.
   // Shopify's app-specific TOML configuration is intentionally unchanged.
   let deleteWebhookReady = false;
+  let inventoryWebhookReady = false;
   let deleteWebhookError = "";
   try {
     const { session: offline, admin: shopAdmin } = await unauthenticated.admin(session.shop);
@@ -54,7 +55,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     // external Shopify connectors cannot see another app's webhooks.
     const response = await shopAdmin.graphql(`#graphql
       query CsbyteVerifyDeleteSubscription {
-        webhookSubscriptions(first: 50, topics: [PRODUCTS_DELETE]) {
+        webhookSubscriptions(first: 50, topics: [PRODUCTS_DELETE, INVENTORY_LEVELS_UPDATE]) {
           nodes { id topic uri }
           pageInfo { hasNextPage }
         }
@@ -83,6 +84,18 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         }
       })(),
     ));
+    inventoryWebhookReady = Boolean(subscriptions?.nodes.some((webhook) =>
+      webhook.topic === "INVENTORY_LEVELS_UPDATE" &&
+      (() => {
+        try {
+          const endpoint = new URL(webhook.uri, process.env.SHOPIFY_APP_URL);
+          return endpoint.origin === new URL(process.env.SHOPIFY_APP_URL || request.url).origin &&
+            endpoint.pathname === "/webhooks/inventory_levels/update";
+        } catch {
+          return false;
+        }
+      })(),
+    ));
     if (!deleteWebhookReady) {
       deleteWebhookError = "No se encontró la suscripción products/delete de CSBYTE Bundles en Shopify.";
     }
@@ -92,7 +105,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       : "No fue posible registrar el webhook.";
   }
   const lastReport = await previousReportPromise;
-  return { lastReport, deleteWebhookReady, deleteWebhookError };
+  return { lastReport, deleteWebhookReady, deleteWebhookError, inventoryWebhookReady };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -142,6 +155,14 @@ export default function BundleSync() {
                 {initial.deleteWebhookError ||
                   "Shopify todavía no confirmó la protección inmediata."}
                 La revisión manual y diaria sigue disponible.
+              </s-banner>
+            )}
+            {initial.inventoryWebhookReady ? (
+              <s-badge tone="success">Protección por inventario conectada</s-badge>
+            ) : (
+              <s-banner heading="Protección inmediata por inventario pendiente" tone="warning">
+                Falta confirmar la suscripción inventory_levels/update y el permiso read_inventory.
+                La revisión programada y la protección antes de publicar siguen disponibles.
               </s-banner>
             )}
             <s-paragraph>
