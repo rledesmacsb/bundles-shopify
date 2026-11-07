@@ -63,6 +63,10 @@ function createFixture(options = {}) {
     let data;
     if (operation.includes("CsbyteManagedBundlePriceAudit")) {
       data = {products:{nodes:[bundle],pageInfo:{hasNextPage:false,endCursor:null}}};
+    } else if (operation.includes("CsbytePriceWebhookRecheck")) {
+      if (options.manualEditDuringRecheck) parent.price = "154900";
+      data = {product:{id:bundle.id,managedBy:bundle.managedBy,
+        snapshotMeta:bundle.snapshotMeta,variants:{nodes:[parent]}}};
     } else if (operation.includes("CsbyteSyncManagedBundlePrice")) {
       updates.push(variables.variants[0]);
       parent.price = variables.variants[0].price;
@@ -102,7 +106,7 @@ function createFixture(options = {}) {
     "./bundle-sku-guard.server":{auditComponentSkuUniqueness:async()=>[]},
   });
   return {admin, bundle, updates, getSnapshot:()=>snapshot,
-    run:(apply)=>sync.runManagedBundleSync(admin,{apply,saveReport:false})};
+    run:(apply,changedComponentProductId)=>sync.runManagedBundleSync(admin,{apply,saveReport:false,changedComponentProductId})};
 }
 
 test("recalculates a Bundle when monitor price rises by 10000 CLP",async()=>{
@@ -171,4 +175,22 @@ test("rechecked recovered stock prevents unnecessary unpublication",async()=>{
   assert.equal(report.unpublished,0);
   assert.equal(f.bundle.status,"ACTIVE");
   assert.match(report.rows[0].issues.join(" "),/disponibilidad cambió/);
+});
+
+test("product update only processes Bundles referencing the changed component",async()=>{
+  const f=createFixture();
+  const unrelated=await f.run(true,"gid://shopify/Product/888888");
+  assert.equal(unrelated.total,0);
+  assert.equal(unrelated.updated,0);
+  const relevant=await f.run(true,"gid://shopify/Product/90020");
+  assert.equal(relevant.total,1);
+  assert.equal(relevant.updated,1);
+});
+
+test("concurrent manual price edit blocks an automatic update",async()=>{
+  const f=createFixture({manualEditDuringRecheck:true});
+  const report=await f.run(true,"gid://shopify/Product/90020");
+  assert.equal(report.updated,0);
+  assert.equal(f.updates.length,0);
+  assert.match(report.rows[0].issues.join(" "),/Bundle cambió durante la sincronización/);
 });
