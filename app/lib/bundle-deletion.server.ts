@@ -170,3 +170,143 @@ export async function protectBundlesAfterProductDeletion(
   }
   return result;
 }
+
+
+/**
+ * Protect managed Bundles after inventory_levels/update.
+ * The event identifies an InventoryItem, never a SKU. Always verify all
+ * original component variants against live Shopify inventory before drafting.
+ */
+export async function protectBundlesAfterInventoryChange(
+  admin: Admin,
+  inventoryItemId: string,
+): Promise<{ examined: number; matched: number; unpublished: number; skipped: number; errors: string[] }> {
+  if (!/^gid:\/\/shopify\/InventoryItem\/[1-9][0-9]*$/.test(inventoryItemId)) {
+    throw new Error("El evento no contiene un ID válido de inventario Shopify.");
+  }
+  const itemData = await graphql(admin, [
+    "#graphql",
+    "query CsbyteInventoryEventSource($id: ID!) {",
+    "  inventoryItem(id: $id) {",
+    "    id",
+    "    variants(first: 10) { nodes { id product { id } } pageInfo { hasNextPage } }",
+    "  }",
+    "}",
+  ].join("\n"), { id: inventoryItemId });
+  const item = itemData.inventoryItem as {
+    id: string;
+    variants: { nodes: Array<{ id: string; product: { id: string } | null }>; pageInfo: { hasNextPage: boolean } };
+  } | null;
+  if (!item) return { examined: 0, matched: 0, unpublished: 0, skipped: 0, errors: [] };
+  if (item.variants?.pageInfo?.hasNextPage) {
+    throw new Error("Un artículo de inventario tiene demasiadas variantes para verificar.");
+  }
+  const changedVariants = new Set(item.variants?.nodes.map((v) => v.id) ?? []);
+  const changedProducts = new Set(item.variants?.nodes.map((v) => v.product?.id).filter(
+    (id): id is string => Boolean(id)) ?? []);
+  if (!changedVariants.size || !changedProducts.size) {
+    return { examined: 0, matched: 0, unpublished: 0, skipped: 0, errors: [] };
+  }
+
+  const bundles = await loadPublishedManagedBundles(admin);
+  const result = { examined: bundles.length, matched: 0, unpublished: 0, skipped: 0, errors: [] as string[] };
+  for (const bundle of bundles) {
+    if (![...changedProducts].some((productId) =>
+      referencesProduct(bundle.snapshot?.value, productId))) continue;
+    result.matched++;
+    try {
+      const data = await graphql(admin, [
+        "#graphql",
+        "query CsbyteInventoryRecheckManagedBundle($id: ID!) {",
+        "  product(id: $id) {",
+        "    id status",
+        "    managed: metafield(namespace: \"csbyte_bundle\", key: \"managed_by\") { value }",
+        "    snapshot: metafield(namespace: \"csbyte_bundle\", key: \"component_snapshot\") { value }",
+        "    bundleComponents(first: 10) {",
+        "      nodes { quantity componentProduct { id status totalInventory }",
+        "        componentVariants(first: 2) {",
+        "          nodes { id inventoryQuantity } pageInfo { hasNextPage }",
+        "        }",
+        "      }",
+        "      pageInfo { hasNextPage }",
+        "    }",
+        "  }",
+        "}",
+      ].join("\n"), { id: bundle.id });
+      const parent = data.product as (BundleRef & {
+        bundleComponents: {
+          nodes: Array<{
+            quantity: number;
+            componentProduct: { id: string; status: string; totalInventory: number | null } | null;
+            componentVariants: { nodes: Array<{ id: string; inventoryQuantity: number | null }>;
+              pageInfo: { hasNextPage: boolean } };
+          }>;
+          pageInfo: { hasNextPage: boolean };
+        };
+      }) | null;
+      if (!parent || !["ACTIVE", "UNLISTED"].includes(parent.status) ||
+          parent.managed?.value !== "csbyte-commerce-tools") {
+        result.skipped++;
+        continue;
+      }
+      let refs: Array<{ productId: string; variantId: string }>;
+      try {
+        const snapshot = JSON.parse(parent.snapshot?.value ?? "null");
+        refs = [snapshot.base, snapshot.monitor, snapshot.keyboardMouse, snapshot.wifiAdapter]
+          .filter(Boolean);
+        if (refs.length < 3 || refs.some((ref) => !ref.productId || !ref.variantId)) {
+          throw new Error("Snapshot incompleto");
+        }
+      } catch {
+        result.errors.push(bundle.title + ": composición original no verificable.");
+        continue;
+      }
+      if (!refs.some((ref) => changedProducts.has(ref.productId) &&
+          changedVariants.has(ref.variantId))) {
+        result.skipped++;
+        continue;
+      }
+      const components = parent.bundleComponents;
+      const unavailable = components.pageInfo.hasNextPage ||
+        components.nodes.length !== refs.length ||
+        refs.some((ref) => {
+          const matches = components.nodes.filter((entry) =>
+            entry.componentProduct?.id === ref.productId &&
+            entry.componentVariants.nodes.some((variant) => variant.id === ref.variantId));
+          if (matches.length !== 1) return true;
+          const entry = matches[0];
+          const variant = entry.componentVariants.nodes[0];
+          return entry.quantity !== 1 ||
+            entry.componentVariants.pageInfo.hasNextPage ||
+            entry.componentVariants.nodes.length !== 1 ||
+            !["ACTIVE", "UNLISTED"].includes(entry.componentProduct!.status) ||
+            entry.componentProduct!.totalInventory == null ||
+            entry.componentProduct!.totalInventory <= 0 ||
+            variant.inventoryQuantity == null || variant.inventoryQuantity <= 0;
+        });
+      if (!unavailable) {
+        result.skipped++;
+        continue;
+      }
+      const saved = await graphql(admin, [
+        "#graphql",
+        "mutation CsbyteInventoryProtectBundle($product: ProductUpdateInput!) {",
+        "  productUpdate(product: $product) {",
+        "    product { id status } userErrors { field message }",
+        "  }",
+        "}",
+      ].join("\n"), { product: { id: parent.id, status: "DRAFT" } });
+      const operation = saved.productUpdate;
+      if (operation?.userErrors?.length ||
+          operation?.product?.id !== parent.id ||
+          operation.product.status !== "DRAFT") {
+        throw new Error(operation?.userErrors?.map((e: {message:string}) => e.message).join(" · ") ||
+          "Shopify no confirmó el cambio a Borrador.");
+      }
+      result.unpublished++;
+    } catch (error) {
+      result.errors.push(bundle.title + ": " + (error instanceof Error ? error.message : "Error de Shopify"));
+    }
+  }
+  return result;
+}
