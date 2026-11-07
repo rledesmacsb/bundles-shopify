@@ -43,8 +43,13 @@ function createFixture(options = {}) {
     keyboardMouse:{productId:sources[2].id,variantId:sources[2].variant},
     wifiAdapter:null,
   };
+  const weights = [1200, 2700, 500];
+  const totalGrams = weights.reduce((sum, x) => sum + x, 0);
+  const startingWeight = options.parentWeightGrams ?? totalGrams;
   const parent = { id:"gid://shopify/ProductVariant/9999",
-    sku:"BND-TEST-9010", price:String(price), compareAtPrice:"160000", inventoryQuantity:8 };
+    sku:"BND-TEST-9010", price:String(price), compareAtPrice:"160000", inventoryQuantity:8,
+    inventoryItem:{measurement:{weight:{value:startingWeight/1000,
+      unit:"KILOGRAMS"}}} };
   const bundle = {
     id:"gid://shopify/Product/90000", title:"Bundle de prueba",
     status:options.bundleStatus || "DRAFT", totalInventory:8,
@@ -54,15 +59,27 @@ function createFixture(options = {}) {
     bundleComponents:{ nodes:sources.map((p,i)=>({
       quantity:1,
       componentProduct:{id:p.id,title:p.title,status:i===1?status:"ACTIVE",totalInventory:i===1?(options.monitorStock ?? 20):20},
-      componentVariants:{nodes:[{id:p.variant,sku:p.sku,price:p.price,inventoryQuantity:i===1?(options.monitorStock ?? 20):20}],
+      componentVariants:{nodes:[{id:p.variant,sku:p.sku,price:p.price,inventoryQuantity:i===1?(options.monitorStock ?? 20):20,
+        inventoryItem:{measurement:{weight:{value:(options.componentWeightsGrams?.[i] ?? weights[i])/1000,unit:"KILOGRAMS"}}}}],
         pageInfo:{hasNextPage:false}},
     })),pageInfo:{hasNextPage:false}},
   };
   const updates = [];
+  const weightUpdates = [];
   const admin = { graphql: async (operation, { variables } = {}) => {
     let data;
     if (operation.includes("CsbyteManagedBundlePriceAudit")) {
       data = {products:{nodes:[bundle],pageInfo:{hasNextPage:false,endCursor:null}}};
+    } else if (operation.includes("CsbyteWeightSyncRecheck")) {
+      data = {product:{...bundle,
+        bundleComponents:{...bundle.bundleComponents,nodes:bundle.bundleComponents.nodes.map(x=>({
+          ...x,componentVariants:x.componentVariants,
+        }))}}};
+    } else if (operation.includes("CsbyteSyncManagedBundleWeight")) {
+      const grams = variables.variants[0].inventoryItem.measurement.weight.value*1000;
+      weightUpdates.push(grams);
+      parent.inventoryItem.measurement.weight = variables.variants[0].inventoryItem.measurement.weight;
+      data = {productVariantsBulkUpdate:{productVariants:[{...parent}],userErrors:[]}};
     } else if (operation.includes("CsbytePriceWebhookRecheck")) {
       if (options.manualEditDuringRecheck) parent.price = "154900";
       data = {product:{id:bundle.id,managedBy:bundle.managedBy,
@@ -105,7 +122,7 @@ function createFixture(options = {}) {
     "./bundle-runtime-settings.server":settings,
     "./bundle-sku-guard.server":{auditComponentSkuUniqueness:async()=>[]},
   });
-  return {admin, bundle, updates, getSnapshot:()=>snapshot,
+  return {admin, bundle, updates, weightUpdates, getSnapshot:()=>snapshot,
     run:(apply,changedComponentProductId)=>sync.runManagedBundleSync(admin,{apply,saveReport:false,changedComponentProductId})};
 }
 
@@ -193,4 +210,47 @@ test("concurrent manual price edit blocks an automatic update",async()=>{
   assert.equal(report.updated,0);
   assert.equal(f.updates.length,0);
   assert.match(report.rows[0].issues.join(" "),/Bundle cambió durante la sincronización/);
+});
+
+test("updates weight on component webhook without changing Bundle price",async()=>{
+  const f=createFixture({componentWeightsGrams:[1200,3000,500]});
+  const report=await f.run(true,"gid://shopify/Product/90020");
+  assert.equal(report.errors.length,0);
+  assert.equal(report.updated,1);
+  assert.equal(f.weightUpdates.length,1);
+  assert.equal(f.weightUpdates[0],4700);
+  assert.equal(f.updates.length,0);
+  assert.equal(report.rows[0].weightUpdated,true);
+});
+
+test("weight sync respects a manually edited parent price",async()=>{
+  const f=createFixture({editedPrice:154900,componentWeightsGrams:[1200,3000,500]});
+  const report=await f.run(true);
+  assert.equal(report.errors.length,0);
+  assert.equal(f.weightUpdates[0],4700);
+  assert.equal(f.updates.length,0);
+  assert.match(report.rows[0].issues.join(" "),/editado fuera de la app/);
+});
+
+test("weight preview never writes changes",async()=>{
+  const f=createFixture({componentWeightsGrams:[1200,3000,500]});
+  const report=await f.run(false);
+  assert.equal(f.weightUpdates.length,0);
+  assert.equal(report.rows[0].expectedWeightGrams,4700);
+  assert.match(report.rows[0].issues.join(" "),/peso del Bundle necesita/);
+});
+
+test("weight recalculates without a price rule",async()=>{
+  const f=createFixture({configured:false,componentWeightsGrams:[1200,3000,500]});
+  const report=await f.run(true);
+  assert.equal(report.errors.length,0);
+  assert.equal(f.weightUpdates[0],4700);
+  assert.equal(f.updates.length,0);
+});
+
+test("does not write weight when component weight is missing",async()=>{
+  const f=createFixture({componentWeightsGrams:[1200,0,500]});
+  const report=await f.run(true);
+  assert.equal(f.weightUpdates.length,0);
+  assert.match(report.rows[0].issues.join(" "),/peso válido/);
 });
