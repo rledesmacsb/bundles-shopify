@@ -29,6 +29,10 @@ const shopify = shopifyApp({
       deliveryMethod: DeliveryMethod.Http,
       callbackUrl: "/webhooks/inventory_levels/update",
     },
+    PRODUCTS_UPDATE: {
+      deliveryMethod: DeliveryMethod.Http,
+      callbackUrl: "/webhooks/products/update",
+    },
   },
   hooks: {
     afterAuth: async ({ session }) => {
@@ -38,14 +42,14 @@ const shopify = shopifyApp({
       try {
         const result = await shopify.registerWebhooks({ session });
         const subscriptions = result as Record<string, Array<{ success: boolean }>>;
-        for (const topic of ["PRODUCTS_DELETE", "INVENTORY_LEVELS_UPDATE"]) {
+        for (const topic of ["PRODUCTS_DELETE", "INVENTORY_LEVELS_UPDATE", "PRODUCTS_UPDATE"]) {
           const deliveries = subscriptions[topic];
           if (!Array.isArray(deliveries) || deliveries.some((item) => !item.success)) {
             console.warn("Shopify webhook subscription not confirmed", { topic });
           }
         }
       } catch (error) {
-        console.error("Shopify products/delete registration error", error);
+        console.error("Shopify webhook registration error", error);
       }
     },
   },
