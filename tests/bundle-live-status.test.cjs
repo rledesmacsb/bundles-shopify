@@ -18,16 +18,21 @@ const {loadLiveBundleSnapshot}=mod.exports;
 
 function item(id,status,managed=true) {
   return {
-    id:"gid://shopify/Product/"+id,title:"Bundle "+id,status,totalInventory:status==="DRAFT"?0:8,
+    id:"gid://shopify/Product/"+id,title:"Bundle "+id,status,onlineStorePublished:status==="ACTIVE",totalInventory:status==="DRAFT"?0:8,
     managedBy:{value:managed?"csbyte-commerce-tools":"another-app"},
     variants:{nodes:[{sku:"BND-"+id,price:"99000"}],pageInfo:{hasNextPage:false}},
   };
 }
 function fixture(pages) {
   let calls=0;
-  const admin={graphql:async(_operation,{variables})=>{
+  const admin={graphql:async(operation,{variables}={})=>{
+    if(operation.includes("CsbyteCurrentOnlineStorePublication"))
+      return {json:async()=>({data:{publications:{nodes:[{
+        id:"gid://shopify/Publication/30",channels:{nodes:[{handle:"online-store",name:"Online Store"}]}
+      }],pageInfo:{hasNextPage:false}}}})};
     const page=pages[calls++];
     assert.equal(variables.after??null,page.expectedAfter??null);
+    assert.equal(variables.publicationId,"gid://shopify/Publication/30");
     return {json:async()=>page.body};
   }};
   return {admin,getCalls:()=>calls};
@@ -41,6 +46,8 @@ test("current Shopify status takes precedence over any saved audit report",async
   assert.equal(result.rows.length,2);
   assert.equal(result.rows[0].status,"DRAFT");
   assert.equal(result.rows[0].available,0);
+  assert.equal(result.rows[0].onlineStorePublished,false);
+  assert.equal(result.rows[1].onlineStorePublished,true);
   assert.equal(result.rows[1].status,"ACTIVE");
   assert.equal(f.getCalls(),1);
 });
