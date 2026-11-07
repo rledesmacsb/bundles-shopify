@@ -652,7 +652,9 @@ export async function runManagedBundleSync(
         row.updated = true;
         report.updated++;
       } catch (error) {
-        row.issues.push(error instanceof Error ? error.message : "Error al sincronizar el precio.");
+        const message = error instanceof Error ? error.message : "Error al sincronizar el precio.";
+        row.issues.push(message);
+        report.errors.push(`${product.title}: no se pudo sincronizar el precio. ${message}`);
       }
     }
     report.total = report.rows.length;
