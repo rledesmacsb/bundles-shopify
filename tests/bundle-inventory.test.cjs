@@ -127,3 +127,21 @@ test("missing inventory item identifier fails before GraphQL", async () => {
   );
   assert.equal(f.writes.length,0);
 });
+
+test("draft bundle with depleted component remains unpublished", async () => {
+  const f=fixture({status:"DRAFT",stock:0});
+  const result=await f.run();
+  assert.equal(result.errors.length,0);
+  assert.equal(result.unpublished,0);
+  assert.equal(f.b.status,"DRAFT");
+  assert.equal(f.writes.length,0);
+});
+
+test("inventory replenishment does not automatically publish a draft bundle", async () => {
+  const f=fixture({status:"DRAFT",stock:8});
+  const result=await f.run();
+  assert.equal(result.errors.length,0);
+  assert.equal(result.unpublished,0);
+  assert.equal(f.b.status,"DRAFT");
+  assert.equal(f.writes.length,0);
+});
