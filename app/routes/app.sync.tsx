@@ -194,7 +194,7 @@ export default function BundleSync() {
                 <s-stack gap="small">
                   <s-text><strong>{item.title}</strong></s-text>
                   <s-text tone="neutral">
-                    {item.status === "ACTIVE" ? "Publicado" : "Borrador"}
+                    {item.status === "ACTIVE" ? "Activo (canal no verificado)" : item.status === "DRAFT" ? "Borrador" : item.status === "UNLISTED" ? "No listado" : item.status === "ARCHIVED" ? "Archivado" : "Estado por revisar"}
                     {" · "}{item.available} disponibles
                     {" · "}Precio: {item.price == null
                       ? "Sin precio"
