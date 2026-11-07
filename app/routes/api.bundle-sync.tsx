@@ -47,12 +47,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     if (!isAllowedShop(session.shop)) continue;
     try {
       const { admin, session: offline } = await unauthenticated.admin(session.shop);
-      let webhookRegistered = false;
+      const webhookStatus = { deletion: false, inventory: false, prices: false };
       try {
         await registerWebhooks({ session: offline });
         const response = await admin.graphql(`#graphql
-          query CsbyteCronVerifyDeletionWebhook {
-            webhookSubscriptions(first: 50, topics: [PRODUCTS_DELETE]) {
+          query CsbyteCronVerifyBundleWebhooks {
+            webhookSubscriptions(first: 50, topics: [PRODUCTS_DELETE, INVENTORY_LEVELS_UPDATE, PRODUCTS_UPDATE]) {
               nodes { id topic uri }
               pageInfo { hasNextPage }
             }
@@ -66,20 +66,27 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
           throw new Error(body.errors.map((e: { message: string }) => e.message).join(" · "));
         }
         const hooks = body.data?.webhookSubscriptions?.nodes ?? [];
-        webhookRegistered = hooks.some((hook: { topic: string; uri: string }) => {
-          try {
-            const endpoint = new URL(hook.uri, process.env.SHOPIFY_APP_URL);
-            return hook.topic === "PRODUCTS_DELETE" &&
-              endpoint.origin === new URL(process.env.SHOPIFY_APP_URL || "").origin &&
-              endpoint.pathname === "/webhooks/products/delete";
-          } catch {
-            return false;
-          }
-        });
-        if (!webhookRegistered) {
-          console.warn("CSBYTE cron: products/delete not verified in Shopify", {
-            shop: session.shop,
+        const expected = [
+          { key: "deletion" as const, topic: "PRODUCTS_DELETE", path: "/webhooks/products/delete" },
+          { key: "inventory" as const, topic: "INVENTORY_LEVELS_UPDATE", path: "/webhooks/inventory_levels/update" },
+          { key: "prices" as const, topic: "PRODUCTS_UPDATE", path: "/webhooks/products/update" },
+        ];
+        for (const entry of expected) {
+          webhookStatus[entry.key] = hooks.some((hook: { topic: string; uri: string }) => {
+            try {
+              const endpoint = new URL(hook.uri, process.env.SHOPIFY_APP_URL);
+              return hook.topic === entry.topic &&
+                endpoint.origin === new URL(process.env.SHOPIFY_APP_URL || "").origin &&
+                endpoint.pathname === entry.path;
+            } catch {
+              return false;
+            }
           });
+          if (!webhookStatus[entry.key]) {
+            console.warn("CSBYTE cron: webhook not verified", {
+              shop: session.shop, topic: entry.topic,
+            });
+          }
         }
       } catch (error) {
         console.warn("CSBYTE cron: webhook verification failed", {
@@ -99,8 +106,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         updated: report.updated,
         alerts: report.requiresAttention,
         disabled: report.unpublished,
-        deletionWebhookRegistered: webhookRegistered,
+        webhooks: webhookStatus,
         pricingRuleConfigured: report.priceRuleConfigured,
+        checkedAt: report.checkedAt,
         errors: report.errors,
       });
       console.info("CSBYTE cron shop result", {
@@ -109,7 +117,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         updated: report.updated,
         unpublished: report.unpublished,
         errors: report.errors.length,
-        webhookRegistered,
+        requiresAttention: report.requiresAttention,
+        webhooks: webhookStatus,
       });
     } catch (error) {
       shops.push({
@@ -118,12 +127,17 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         updated: 0,
         alerts: 0,
         disabled: 0,
-        deletionWebhookRegistered: false,
+        webhooks: { deletion: false, inventory: false, prices: false },
         errors: [error instanceof Error ? error.message : "Error de sincronización."],
       });
     }
   }
-  const ok = shops.every((shop) => shop.errors.length === 0);
+  const ok = shops.length > 0 && shops.every((shop) => shop.errors.length === 0);
+  console.info("CSBYTE daily audit finished", {
+    ok, shops: shops.length,
+    withErrors: shops.filter((shop) => shop.errors.length > 0).length,
+    checkedAt: new Date().toISOString(),
+  });
   return Response.json(
     { ok, shops },
     { status: ok ? 200 : 503, headers: { "Cache-Control": "no-store" } },
