@@ -3,6 +3,7 @@ import type { LoaderFunctionArgs } from "react-router";
 import prisma from "../db.server";
 import { registerWebhooks, unauthenticated } from "../shopify.server";
 import { runManagedBundleSync } from "../lib/bundle-sync.server";
+import { storeDailyCronStatus } from "../lib/bundle-cron-status.server";
 import { allowedShopDomains, isAllowedShop } from "../lib/shop-allowlist.server";
 
 function authorized(request: Request) {
@@ -99,6 +100,18 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       const report = await runManagedBundleSync(admin, {
         apply: true,
         saveReport: true,
+      });
+      // Record an actual Cron execution independently of manually saved audits.
+      // Do not label this execution successful when reconciliation failed.
+      await storeDailyCronStatus(admin, {
+        checkedAt: report.checkedAt,
+        ok: report.errors.length === 0,
+        checked: report.total,
+        updated: report.updated,
+        unpublished: report.unpublished,
+        requiresAttention: report.requiresAttention,
+        errors: report.errors.slice(0, 20),
+        webhooks: webhookStatus,
       });
       shops.push({
         shop: session.shop,
