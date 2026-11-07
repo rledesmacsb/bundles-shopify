@@ -14,6 +14,7 @@ type Variant = {
   price: string;
   compareAtPrice?: string | null;
   inventoryQuantity: number | null;
+  inventoryItem?: { measurement?: { weight?: { value: number; unit: string } | null } | null } | null;
 };
 type Component = {
   quantity: number;
@@ -61,7 +62,9 @@ export type BundleSyncRow = {
   expectedPrice: number | null;
   issues: string[];
   updated: boolean;
-  updatedDetail?: "price" | "compare_at" | "both";
+  updatedDetail?: "price" | "compare_at" | "both" | "weight";
+  weightUpdated?: boolean;
+  expectedWeightGrams?: number;
   autoUnpublished?: boolean;
 };
 
@@ -90,14 +93,14 @@ const BUNDLES_QUERY = String.raw`#graphql
           value compareDigest
         }
         variants(first: 2) {
-          nodes { id sku price compareAtPrice inventoryQuantity }
+          nodes { id sku price compareAtPrice inventoryQuantity inventoryItem { measurement { weight { value unit } } } }
         }
         bundleComponents(first: 10) {
           nodes {
             quantity
             componentProduct { id title status totalInventory }
             componentVariants(first: 2) {
-              nodes { id sku price inventoryQuantity }
+              nodes { id sku price inventoryQuantity inventoryItem { measurement { weight { value unit } } } }
               pageInfo { hasNextPage }
             }
           }
@@ -305,6 +308,107 @@ async function unpublishInvalidBundle(
     throw new Error("Shopify no confirmó el cambio del Bundle a borrador.");
   }
   return "unpublished";
+}
+
+function weightInGrams(weight: { value: number; unit: string } | null | undefined): number {
+  if (!weight || !Number.isFinite(weight.value) || weight.value <= 0) return NaN;
+  const factor: Record<string, number> = {
+    GRAMS: 1, KILOGRAMS: 1000, OUNCES: 28.349523125, POUNDS: 453.59237,
+  };
+  return weight.value * (factor[weight.unit] ?? NaN);
+}
+
+function expectedBundleWeight(components: Component[]): number {
+  let total = 0;
+  for (const component of components) {
+    const variant = component.componentVariants.nodes[0];
+    const grams = weightInGrams(variant?.inventoryItem?.measurement?.weight);
+    if (!Number.isFinite(grams) || component.quantity !== 1) return NaN;
+    total += grams;
+  }
+  return Number.isFinite(total) && total > 0 ? Math.round(total) : NaN;
+}
+
+/**
+ * Weight changes are independent of price edits. Re-read the exact component
+ * variants and the parent before writing; do not touch original component weights.
+ */
+async function updateBundleWeight(admin: Admin, product: ManagedProduct, snapshot: Snapshot): Promise<number> {
+  const parent = product.variants.nodes[0];
+  const fresh = await query(admin, String.raw`#graphql
+    query CsbyteWeightSyncRecheck($id: ID!) {
+      product(id: $id) {
+        id
+        managedBy: metafield(namespace: "csbyte_bundle", key: "managed_by") { value }
+        snapshotMeta: metafield(namespace: "csbyte_bundle", key: "component_snapshot") { value }
+        variants(first: 2) {
+          nodes { id sku inventoryItem { measurement { weight { value unit } } } }
+        }
+        bundleComponents(first: 10) {
+          nodes {
+            quantity
+            componentProduct { id }
+            componentVariants(first: 2) {
+              nodes { id inventoryItem { measurement { weight { value unit } } } }
+              pageInfo { hasNextPage }
+            }
+          }
+          pageInfo { hasNextPage }
+        }
+      }
+    }
+  `, { id: product.id });
+  const current = fresh?.product as ManagedProduct | undefined;
+  if (!current || current.managedBy?.value !== "csbyte-commerce-tools" ||
+      current.snapshotMeta?.value !== product.snapshotMeta?.value ||
+      current.variants?.nodes?.length !== 1 ||
+      current.variants.nodes[0].id !== parent.id ||
+      current.variants.nodes[0].sku !== snapshot.sku) {
+    throw new Error("El Bundle cambió durante la revisión del peso; no se modificó.");
+  }
+  const freshComposition = verifyComponents(current, snapshot);
+  if (freshComposition.compositionInvalid) {
+    throw new Error("La composición cambió durante la revisión del peso.");
+  }
+  const expected = expectedBundleWeight(current.bundleComponents.nodes);
+  if (!Number.isFinite(expected)) {
+    throw new Error("Falta un peso válido en los componentes de Shopify.");
+  }
+  const saved = current.variants.nodes[0].inventoryItem?.measurement?.weight;
+  const savedGrams = weightInGrams(saved);
+  if (saved?.unit === "KILOGRAMS" && Math.abs(savedGrams - expected) <= 1) {
+    return expected;
+  }
+  const result = await query(admin, String.raw`#graphql
+    mutation CsbyteSyncManagedBundleWeight($id: ID!, $variants: [ProductVariantsBulkInput!]!) {
+      productVariantsBulkUpdate(productId: $id, variants: $variants) {
+        productVariants {
+          id
+          inventoryItem { measurement { weight { value unit } } }
+        }
+        userErrors { field message }
+      }
+    }
+  `, {
+    id: product.id,
+    variants: [{
+      id: parent.id,
+      inventoryItem: { measurement: { weight: {
+        value: Number((expected / 1000).toFixed(3)), unit: "KILOGRAMS",
+      } } },
+    }],
+  });
+  const update = result?.productVariantsBulkUpdate;
+  if (update?.userErrors?.length) {
+    throw new Error(update.userErrors.map((x: any) => x.message).join(" · "));
+  }
+  const savedVariant = update?.productVariants?.find((v: Variant) => v.id === parent.id);
+  const updatedWeight = savedVariant?.inventoryItem?.measurement?.weight;
+  if (updatedWeight?.unit !== "KILOGRAMS" ||
+      Math.abs(weightInGrams(updatedWeight) - expected) > 1) {
+    throw new Error("Shopify no confirmó el peso total actualizado.");
+  }
+  return expected;
 }
 
 async function updatePrice(
@@ -599,6 +703,39 @@ export async function runManagedBundleSync(
           report.errors.push(`${product.title}: no se pudo bloquear el SKU duplicado.`);
         }
       }
+      // Weight is synchronized even when a component has no stock, the
+      // price rule is disabled, or a merchant has edited the Bundle price.
+      // Composition must remain identical to the original saved snapshot.
+      if (!compositionInvalid) {
+        const weight = expectedBundleWeight(source as Component[]);
+        row.expectedWeightGrams = Number.isFinite(weight) ? weight : undefined;
+        if (!Number.isFinite(weight)) {
+          row.issues.push("Falta un peso válido en los componentes de Shopify.");
+        } else {
+          const savedWeight = parent.inventoryItem?.measurement?.weight;
+          const needsWeight = savedWeight?.unit !== "KILOGRAMS" ||
+            !Number.isFinite(weightInGrams(savedWeight)) ||
+            Math.abs(weightInGrams(savedWeight) - weight) > 1;
+          if (needsWeight) {
+            row.issues.push("El peso del Bundle necesita sincronización.");
+            if (options.apply) {
+              try {
+                await updateBundleWeight(admin, product, snapshot);
+                row.weightUpdated = true;
+                row.updated = true;
+                row.updatedDetail = "weight";
+                report.updated++;
+                row.issues = row.issues.filter(x => x !== "El peso del Bundle necesita sincronización.");
+              } catch (error) {
+                const reason = error instanceof Error ? error.message : "Error de Shopify.";
+                row.issues.push("No se pudo actualizar el peso: " + reason);
+                report.errors.push(product.title + ": error de peso. " + reason);
+              }
+            }
+          }
+        }
+      }
+
       if (row.issues.length) continue;
 
       if (!runtime.priceConfig.configured) {
@@ -650,7 +787,7 @@ export async function runManagedBundleSync(
         row.issues = [];
         row.price = wanted;
         row.updated = true;
-        report.updated++;
+        if (!row.weightUpdated) report.updated++;
       } catch (error) {
         const message = error instanceof Error ? error.message : "Error al sincronizar el precio.";
         row.issues.push(message);
