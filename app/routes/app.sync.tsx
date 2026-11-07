@@ -47,6 +47,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   // Shopify's app-specific TOML configuration is intentionally unchanged.
   let deleteWebhookReady = false;
   let inventoryWebhookReady = false;
+  let priceWebhookReady = false;
   let deleteWebhookError = "";
   try {
     const { session: offline, admin: shopAdmin } = await unauthenticated.admin(session.shop);
@@ -55,7 +56,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     // external Shopify connectors cannot see another app's webhooks.
     const response = await shopAdmin.graphql(`#graphql
       query CsbyteVerifyDeleteSubscription {
-        webhookSubscriptions(first: 50, topics: [PRODUCTS_DELETE, INVENTORY_LEVELS_UPDATE]) {
+        webhookSubscriptions(first: 50, topics: [PRODUCTS_DELETE, INVENTORY_LEVELS_UPDATE, PRODUCTS_UPDATE]) {
           nodes { id topic uri }
           pageInfo { hasNextPage }
         }
@@ -96,6 +97,18 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         }
       })(),
     ));
+    priceWebhookReady = Boolean(subscriptions?.nodes.some((webhook) =>
+      webhook.topic === "PRODUCTS_UPDATE" &&
+      (() => {
+        try {
+          const endpoint = new URL(webhook.uri, process.env.SHOPIFY_APP_URL);
+          return endpoint.origin === new URL(process.env.SHOPIFY_APP_URL || request.url).origin &&
+            endpoint.pathname === "/webhooks/products/update";
+        } catch {
+          return false;
+        }
+      })(),
+    ));
     if (!deleteWebhookReady) {
       deleteWebhookError = "No se encontró la suscripción products/delete de CSBYTE Bundles en Shopify.";
     }
@@ -105,7 +118,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       : "No fue posible registrar el webhook.";
   }
   const lastReport = await previousReportPromise;
-  return { lastReport, deleteWebhookReady, deleteWebhookError, inventoryWebhookReady };
+  return { lastReport, deleteWebhookReady, deleteWebhookError, inventoryWebhookReady, priceWebhookReady };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -165,6 +178,13 @@ export default function BundleSync() {
                 La revisión programada y la protección antes de publicar siguen disponibles.
               </s-banner>
             )}
+            {initial.priceWebhookReady ? (
+              <s-badge tone="success">Sincronización inmediata de precios conectada</s-badge>
+            ) : (
+              <s-banner heading="Webhook de cambios de producto pendiente" tone="warning">
+                Shopify todavía no confirmó products/update. La sincronización diaria sigue disponible.
+              </s-banner>
+            )}
             <s-paragraph>
               Compara los componentes reales del Bundle con su configuración guardada.
               Detecta cambios de precio, stock, publicación y composición.
@@ -202,7 +222,7 @@ export default function BundleSync() {
               </s-banner>
             )}
             <s-text tone="neutral">
-              Revisión programada una vez al día. Los cambios no son instantáneos.
+              Los cambios de precio se procesan por webhook y se revisan nuevamente una vez al día.
               Si alguien modifica manualmente el precio del Bundle, la app no lo sobrescribe.
             </s-text>
             {last && (
