@@ -43,7 +43,7 @@ function fixture(opts = {}) {
     bundleComponents: {
       nodes: items.map(i => ({
         quantity: 1,
-        componentProduct: {id:i.id,status:"ACTIVE",totalInventory:i.stock},
+        componentProduct: {id:i.id,status:i.id===changedProduct && opts.componentStatus ? opts.componentStatus : "ACTIVE",totalInventory:i.stock},
         componentVariants: {nodes:[{id:i.variantId,inventoryQuantity:i.stock}],
           pageInfo: {hasNextPage:false}},
       })),
@@ -80,13 +80,13 @@ function fixture(opts = {}) {
   return {admin,b,writes,run:()=>protectBundlesAfterInventoryChange(admin,changedInventoryItem)};
 }
 
-test("zero-stock component puts active managed Bundle in draft", async () => {
+test("zero-stock component leaves native managed Bundle active but sold out", async () => {
   const f=fixture();
   const result=await f.run();
-  assert.equal(result.unpublished,1);
+  assert.equal(result.unpublished,0);
   assert.equal(result.errors.length,0);
-  assert.equal(f.b.status,"DRAFT");
-  assert.equal(f.writes.length,1);
+  assert.equal(f.b.status,"ACTIVE");
+  assert.equal(f.writes.length,0);
 });
 
 test("recovered inventory does not unpublish", async () => {
@@ -102,7 +102,7 @@ test("replayed inventory event is idempotent", async () => {
   await f.run();
   const second=await f.run();
   assert.equal(second.unpublished,0);
-  assert.equal(f.writes.length,1);
+  assert.equal(f.writes.length,0);
 });
 
 test("unrelated inventory variant never disables another Bundle", async () => {
@@ -143,5 +143,26 @@ test("inventory replenishment does not automatically publish a draft bundle", as
   assert.equal(result.errors.length,0);
   assert.equal(result.unpublished,0);
   assert.equal(f.b.status,"DRAFT");
+  assert.equal(f.writes.length,0);
+});
+
+test("inactive component still protects a published Bundle by drafting", async () => {
+  const f=fixture({componentStatus:"DRAFT",stock:5});
+  const result=await f.run();
+  assert.equal(result.errors.length,0);
+  assert.equal(result.unpublished,1);
+  assert.equal(f.b.status,"DRAFT");
+  assert.equal(f.writes.length,1);
+});
+
+test("replenished previously published Bundle stays active with no republish mutation", async () => {
+  const f=fixture({stock:0});
+  await f.run();
+  f.b.bundleComponents.nodes[0].componentProduct.totalInventory=7;
+  f.b.bundleComponents.nodes[0].componentVariants.nodes[0].inventoryQuantity=7;
+  const result=await f.run();
+  assert.equal(result.errors.length,0);
+  assert.equal(result.unpublished,0);
+  assert.equal(f.b.status,"ACTIVE");
   assert.equal(f.writes.length,0);
 });
