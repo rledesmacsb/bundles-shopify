@@ -218,7 +218,8 @@ function verifyComponents(product: ManagedProduct, s: Snapshot) {
  * Re-fetch immediately before drafting, because another actor may have
  * corrected the Bundle since the inventory scan.
  *
- * Stock depletion and unavailable components also trigger this safeguard.
+ * Missing or inactive components also trigger this safeguard.
+ * Stock depletion alone never drafts a valid native Shopify Bundle.
  * Always re-fetch immediately before changing the parent status.
  */
 async function unpublishInvalidBundle(
@@ -285,9 +286,10 @@ async function unpublishInvalidBundle(
       const variant = component?.componentVariants.nodes[0];
       const product = component?.componentProduct;
       return !product || product.id !== ref.productId ||
-        !["ACTIVE", "UNLISTED"].includes(product.status) ||
-        variant?.inventoryQuantity == null || variant.inventoryQuantity <= 0 ||
-        product.totalInventory == null || product.totalInventory <= 0;
+        !["ACTIVE", "UNLISTED"].includes(product.status);
+      // Zero inventory is not a reason to draft native Shopify Bundles:
+      // Shopify automatically marks them unavailable, then restores
+      // availability when all components are replenished.
     })
   );
   if (!composition.compositionInvalid && !duplicated && !unavailable) return "restored";
@@ -632,10 +634,10 @@ export async function runManagedBundleSync(
       const unavailableComponent = source.some((component) => {
         const product = component?.componentProduct;
         const variant = component?.componentVariants.nodes[0];
+        // The parent stays published through stock depletion, just like
+        // a native Shopify Bundle. Only a missing/inactive source is unsafe.
         return !product || !variant ||
-          !["ACTIVE", "UNLISTED"].includes(product.status) ||
-          variant.inventoryQuantity == null || variant.inventoryQuantity <= 0 ||
-          product.totalInventory == null || product.totalInventory <= 0;
+          !["ACTIVE", "UNLISTED"].includes(product.status);
       });
       for (let i = 0; i < source.length; i++) {
         const c = source[i];
@@ -664,13 +666,13 @@ export async function runManagedBundleSync(
           if (result === "unpublished") {
             row.status = "DRAFT";
             row.autoUnpublished = true;
-            row.issues.push("Pasado a borrador: al menos un componente no tiene stock disponible o está inactivo.");
+            row.issues.push("Pasado a borrador: al menos un componente está ausente o inactivo.");
             report.unpublished++;
           } else if (result === "restored") {
             row.issues.push("La disponibilidad cambió durante la revisión. Ejecuta nuevamente el control.");
           }
         } catch (error) {
-          row.issues.push("No fue posible poner en borrador el Bundle sin stock: " +
+          row.issues.push("No fue posible proteger el Bundle con componentes inactivos: " +
             (error instanceof Error ? error.message : "Error de Shopify."));
           report.errors.push(`${product.title}: no se pudo bloquear un Bundle sin stock.`);
         }
