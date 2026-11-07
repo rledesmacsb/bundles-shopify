@@ -283,6 +283,7 @@ export default function BundleSync() {
             <s-text tone="neutral">
               Datos consultados directamente en Shopify: {new Date(liveSnapshot.checkedAt).toLocaleString("es-CL")}.
               El estado ACTIVE no confirma publicación en el canal Tienda online.
+              Cuando Shopify permite comprobarlo, se muestra por separado.
             </s-text>
             {liveSnapshot.error ? (
               <s-banner heading="No fue posible confirmar el estado actual" tone="critical">
@@ -293,6 +294,12 @@ export default function BundleSync() {
                 Bundles administrados encontrados: {liveSnapshot.rows.length}.
                 La última auditoría figura por separado y puede contener observaciones ya resueltas.
               </s-paragraph>
+            )}
+            {liveSnapshot.publicationCheckError && (
+              <s-banner heading="Publicación en Tienda online no verificada" tone="warning">
+                {liveSnapshot.publicationCheckError}
+                El estado y precio actual siguen disponibles, pero la visibilidad del canal no se puede confirmar.
+              </s-banner>
             )}
             {report && (
               <s-text tone="neutral">
@@ -315,10 +322,17 @@ export default function BundleSync() {
                         {item.status === "DRAFT" ? (
                           <s-badge tone="warning">Borrador actual</s-badge>
                         ) : item.status === "ACTIVE" ? (
-                          <s-badge tone="success">Activo en Shopify (canal no verificado)</s-badge>
+                          <s-badge tone="success">Activo en Shopify</s-badge>
                         ) : (
                           <s-badge>{item.status === "UNLISTED" ? "No listado" :
                             item.status === "ARCHIVED" ? "Archivado" : "Estado desconocido"}</s-badge>
+                        )}
+                        {item.onlineStorePublished === true ? (
+                          <s-badge tone="success">Publicado en Tienda online</s-badge>
+                        ) : item.onlineStorePublished === false ? (
+                          <s-badge tone="warning">No publicado en Tienda online</s-badge>
+                        ) : (
+                          <s-text tone="neutral">Publicación en Tienda online sin verificar.</s-text>
                         )}
                         <s-text tone="neutral">
                           Stock actual: {item.available == null ? "No verificable" :
