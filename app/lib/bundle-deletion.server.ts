@@ -176,6 +176,8 @@ export async function protectBundlesAfterProductDeletion(
  * Protect managed Bundles after inventory_levels/update.
  * The event identifies an InventoryItem, never a SKU. Always verify all
  * original component variants against live Shopify inventory before drafting.
+ * Depleted stock does NOT draft a valid native bundle: Shopify controls
+ * sellability and restores it automatically when inventory returns.
  */
 export async function protectBundlesAfterInventoryChange(
   admin: Admin,
@@ -276,13 +278,15 @@ export async function protectBundlesAfterInventoryChange(
           if (matches.length !== 1) return true;
           const entry = matches[0];
           const variant = entry.componentVariants.nodes[0];
+          // Native Shopify Bundles remain published at zero inventory.
+          // Shopify disables purchase automatically until all components
+          // are available again; never force DRAFT for stock depletion alone.
+          // Only broken component identities, quantities or unpublished
+          // source products need the protective DRAFT status.
           return entry.quantity !== 1 ||
             entry.componentVariants.pageInfo.hasNextPage ||
             entry.componentVariants.nodes.length !== 1 ||
-            !["ACTIVE", "UNLISTED"].includes(entry.componentProduct!.status) ||
-            entry.componentProduct!.totalInventory == null ||
-            entry.componentProduct!.totalInventory <= 0 ||
-            variant.inventoryQuantity == null || variant.inventoryQuantity <= 0;
+            !["ACTIVE", "UNLISTED"].includes(entry.componentProduct!.status);
         });
       if (!unavailable) {
         result.skipped++;
