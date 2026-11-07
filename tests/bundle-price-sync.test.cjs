@@ -212,14 +212,15 @@ test("concurrent manual price edit blocks an automatic update",async()=>{
   assert.match(report.rows[0].issues.join(" "),/Bundle cambió durante la sincronización/);
 });
 
-test("updates weight on component webhook without changing Bundle price",async()=>{
+test("updates weight and reconciles an independently stale price on component webhook",async()=>{
   const f=createFixture({componentWeightsGrams:[1200,3000,500]});
   const report=await f.run(true,"gid://shopify/Product/90020");
   assert.equal(report.errors.length,0);
   assert.equal(report.updated,1);
   assert.equal(f.weightUpdates.length,1);
   assert.equal(f.weightUpdates[0],4700);
-  assert.equal(f.updates.length,0);
+  assert.equal(f.updates.length,1);
+  assert.equal(Number(f.updates[0].price),165000);
   assert.equal(report.rows[0].weightUpdated,true);
 });
 
