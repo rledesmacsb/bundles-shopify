@@ -7,6 +7,7 @@ import { useFetcher, useLoaderData, useRouteError } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate, registerWebhooks, unauthenticated } from "../shopify.server";
 import { isAllowedShop } from "../lib/shop-allowlist.server";
+import { loadLiveBundleSnapshot } from "../lib/bundle-live-status.server";
 import {
   runManagedBundleSync,
   type BundleSyncReport,
@@ -43,6 +44,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   // Fetch the last verified report without blocking on a full catalog scan.
   // The costly scan is explicitly requested or run by daily Cron.
   const previousReportPromise = readPreviousReport(admin);
+  const liveSnapshotPromise = loadLiveBundleSnapshot(admin);
   // This shop-specific subscription is owned by CSBYTE Bundles itself.
   // Shopify's app-specific TOML configuration is intentionally unchanged.
   let deleteWebhookReady = false;
@@ -117,8 +119,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       ? error.message
       : "No fue posible registrar el webhook.";
   }
-  const lastReport = await previousReportPromise;
-  return { lastReport, deleteWebhookReady, deleteWebhookError, inventoryWebhookReady, priceWebhookReady };
+  const [lastReport, liveSnapshot] = await Promise.all([previousReportPromise, liveSnapshotPromise]);
+  return { lastReport, liveSnapshot, deleteWebhookReady, deleteWebhookError, inventoryWebhookReady, priceWebhookReady };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -136,8 +138,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     apply: !readOnly,
     saveReport: !readOnly,
   });
+  const liveSnapshot = await loadLiveBundleSnapshot(admin);
   return {
     report,
+    liveSnapshot,
     readOnly,
     message: report.errors.length
       ? "La revisión necesita atención."
@@ -151,7 +155,9 @@ export default function BundleSync() {
   const initial = useLoaderData<typeof loader>();
   const fetcher = useFetcher<typeof action>();
   const report = fetcher.data?.report ?? initial.lastReport;
+  const liveSnapshot = fetcher.data?.liveSnapshot ?? initial.liveSnapshot;
   const running = fetcher.state !== "idle";
+  const historicalRows = new Map((report?.rows ?? []).map((row) => [row.id, row]));
   const last = fetcher.data?.report && !fetcher.data.readOnly &&
     !fetcher.data.report.errors.length
     ? fetcher.data.report : initial.lastReport;
@@ -234,60 +240,72 @@ export default function BundleSync() {
           </s-stack>
         </s-section>
 
-        <s-section heading="Estado de los Bundles">
+        <s-section heading="Estado actual de los Bundles">
           <s-stack gap="base">
-            {!report && (
+            <s-text tone="neutral">
+              Datos consultados directamente en Shopify: {new Date(liveSnapshot.checkedAt).toLocaleString("es-CL")}.
+              El estado ACTIVE no confirma publicación en el canal Tienda online.
+            </s-text>
+            {liveSnapshot.error ? (
+              <s-banner heading="No fue posible confirmar el estado actual" tone="critical">
+                {liveSnapshot.error} No se muestran resultados parciales ni datos históricos como actuales.
+              </s-banner>
+            ) : (
               <s-paragraph>
-                No hay una revisión guardada. Selecciona «Diagnóstico sin modificar productos»
-                para comprobar los componentes.
+                Bundles administrados encontrados: {liveSnapshot.rows.length}.
+                La última auditoría figura por separado y puede contener observaciones ya resueltas.
               </s-paragraph>
             )}
             {report && (
-              <s-paragraph>
-                Revisados: {report.total} · Con observaciones: {report.requiresAttention} ·
-                Fichas sincronizadas: {report.updated} ·
-                Despublicados por seguridad: {report.unpublished ?? 0}.
-              </s-paragraph>
+              <s-text tone="neutral">
+                Última auditoría {new Date(report.checkedAt).toLocaleString("es-CL")}:
+                {report.total} revisados · {report.requiresAttention} con observaciones ·
+                {report.updated} actualizados · {report.unpublished ?? 0} pasados a borrador.
+                Las observaciones corresponden a esa fecha, no necesariamente al estado actual.
+              </s-text>
             )}
-            <div className="csbyte-sync-grid">
-            {report?.rows.map((item) => (
-              <div key={item.id} className="csbyte-sync-card">
-                <s-stack gap="small">
-                  <s-text><strong>{item.title}</strong></s-text>
-                  <s-text tone="neutral">
-                    {item.status === "ACTIVE" ? "Activo (canal no verificado)" : item.status === "DRAFT" ? "Borrador" : item.status === "UNLISTED" ? "No listado" : item.status === "ARCHIVED" ? "Archivado" : "Estado por revisar"}
-                    {" · "}{item.available} disponibles
-                    {" · "}Precio: {item.price == null
-                      ? "Sin precio"
-                      : item.price.toLocaleString("es-CL") + " CLP"}
-                    {item.expectedPrice != null &&
-                      " · Precio calculado: " +
-                        item.expectedPrice.toLocaleString("es-CL") + " CLP"}
-                  </s-text>
-                  {item.autoUnpublished && (
-                    <s-badge tone="warning">Despublicado por seguridad</s-badge>
-                  )}
-                  {item.updated && (
-                    <s-badge tone="success">
-                      {item.updatedDetail === "compare_at"
-                        ? "Precio de comparación actualizado"
-                        : item.updatedDetail === "both"
-                          ? "Precio y comparación actualizados"
-                          : "Precio de venta actualizado"}
-                    </s-badge>
-                  )}
-                  {item.issues.length === 0 && !item.updated && (
-                    <s-badge tone="success">Sin observaciones</s-badge>
-                  )}
-                  {item.issues.map((issue, index) => (
-                    <s-text key={index} tone="warning">{issue}</s-text>
-                  ))}
-                </s-stack>
+            {!liveSnapshot.error && (
+              <div className="csbyte-sync-grid">
+                {liveSnapshot.rows.map((item) => {
+                  const previous = historicalRows.get(item.id);
+                  const changed = previous && (previous.status !== item.status ||
+                    previous.available !== item.available || previous.price !== item.price);
+                  return (
+                    <div key={item.id} className="csbyte-sync-card">
+                      <s-stack gap="small">
+                        <s-text><strong>{item.title}</strong></s-text>
+                        {item.status === "DRAFT" ? (
+                          <s-badge tone="warning">Borrador actual</s-badge>
+                        ) : item.status === "ACTIVE" ? (
+                          <s-badge tone="success">Activo en Shopify (canal no verificado)</s-badge>
+                        ) : (
+                          <s-badge>{item.status === "UNLISTED" ? "No listado" :
+                            item.status === "ARCHIVED" ? "Archivado" : "Estado desconocido"}</s-badge>
+                        )}
+                        <s-text tone="neutral">
+                          Stock actual: {item.available == null ? "No verificable" :
+                            item.available.toLocaleString("es-CL")} · Precio actual:{" "}
+                          {item.price == null ? "No verificable" :
+                            item.price.toLocaleString("es-CL") + " CLP"}
+                        </s-text>
+                        {changed && <s-badge tone="info">Cambió desde la última auditoría</s-badge>}
+                        {!previous && (
+                          <s-text tone="neutral">Sin auditoría guardada para este Bundle.</s-text>
+                        )}
+                        {previous && previous.issues.length > 0 && (
+                          <s-text tone="neutral">
+                            Observaciones anteriores ({new Date(report!.checkedAt).toLocaleString("es-CL")}):
+                            {" "}{previous.issues.join(" · ")}
+                          </s-text>
+                        )}
+                      </s-stack>
+                    </div>
+                  );
+                })}
               </div>
-            ))}
-            </div>
-            {report && report.rows.length === 0 && !report.errors.length && (
-              <s-paragraph>No se encontraron Bundles administrados por la app.</s-paragraph>
+            )}
+            {!liveSnapshot.error && liveSnapshot.rows.length === 0 && (
+              <s-paragraph>No hay Bundles administrados para mostrar.</s-paragraph>
             )}
           </s-stack>
         </s-section>
