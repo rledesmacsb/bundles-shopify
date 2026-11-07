@@ -215,13 +215,14 @@ function verifyComponents(product: ManagedProduct, s: Snapshot) {
  * Re-fetch immediately before drafting, because another actor may have
  * corrected the Bundle since the inventory scan.
  *
- * Only structural differences trigger this safety action. Stock depletion
- * and DRAFT component status are reported but do not rewrite publication.
+ * Stock depletion and unavailable components also trigger this safeguard.
+ * Always re-fetch immediately before changing the parent status.
  */
 async function unpublishInvalidBundle(
   admin: Admin,
   product: ManagedProduct,
   unsafeSku = false,
+  unsafeAvailability = false,
 ): Promise<"unpublished" | "already_safe" | "restored"> {
   const data = await query(admin, String.raw`#graphql
     query CsbyteRecheckBundleBeforeDraft($id: ID!) {
@@ -271,7 +272,22 @@ async function unpublishInvalidBundle(
     const issues = await auditComponentSkuUniqueness(admin, source);
     duplicated = issues.some((issue) => issue.code === "duplicate");
   }
-  if (!composition.compositionInvalid && !duplicated) return "restored";
+  // A missing, inactive or depleted component must never leave the Bundle active.
+  // This check uses the exact original variant IDs, not just the parent's stock.
+  const unavailable = unsafeAvailability && (
+    composition.compositionInvalid ||
+    [snapshot.base, snapshot.monitor, snapshot.keyboardMouse,
+      ...(snapshot.wifiAdapter ? [snapshot.wifiAdapter] : [])].some((ref) => {
+      const component = composition.byVariant.get(ref.variantId);
+      const variant = component?.componentVariants.nodes[0];
+      const product = component?.componentProduct;
+      return !product || product.id !== ref.productId ||
+        !["ACTIVE", "UNLISTED"].includes(product.status) ||
+        variant?.inventoryQuantity == null || variant.inventoryQuantity <= 0 ||
+        product.totalInventory == null || product.totalInventory <= 0;
+    })
+  );
+  if (!composition.compositionInvalid && !duplicated && !unavailable) return "restored";
 
   const updated = await query(admin, String.raw`#graphql
     mutation CsbyteDisableInvalidBundle($input: ProductUpdateInput!) {
@@ -477,6 +493,14 @@ export async function runManagedBundleSync(
         ...(snapshot.wifiAdapter ? [snapshot.wifiAdapter] : [])];
       const source = refs.map(ref => byVariant.get(ref.variantId));
       const roles = ["PC", "Monitor", "Teclado y mouse", "Adaptador Wi-Fi"];
+      const unavailableComponent = source.some((component) => {
+        const product = component?.componentProduct;
+        const variant = component?.componentVariants.nodes[0];
+        return !product || !variant ||
+          !["ACTIVE", "UNLISTED"].includes(product.status) ||
+          variant.inventoryQuantity == null || variant.inventoryQuantity <= 0 ||
+          product.totalInventory == null || product.totalInventory <= 0;
+      });
       for (let i = 0; i < source.length; i++) {
         const c = source[i];
         if (!c?.componentProduct || !c.componentVariants.nodes[0]) continue;
@@ -495,6 +519,24 @@ export async function runManagedBundleSync(
         if (problems.length) {
           const name = c.componentProduct.title.split(" (")[0].trim();
           row.issues.push(`${roles[i]} — ${name}: ${problems.join(" y ")}.`);
+        }
+      }
+      if (unavailableComponent && options.apply &&
+          ["ACTIVE", "UNLISTED"].includes(row.status)) {
+        try {
+          const result = await unpublishInvalidBundle(admin, product, false, true);
+          if (result === "unpublished") {
+            row.status = "DRAFT";
+            row.autoUnpublished = true;
+            row.issues.push("Pasado a borrador: al menos un componente no tiene stock disponible o está inactivo.");
+            report.unpublished++;
+          } else if (result === "restored") {
+            row.issues.push("La disponibilidad cambió durante la revisión. Ejecuta nuevamente el control.");
+          }
+        } catch (error) {
+          row.issues.push("No fue posible poner en borrador el Bundle sin stock: " +
+            (error instanceof Error ? error.message : "Error de Shopify."));
+          report.errors.push(`${product.title}: no se pudo bloquear un Bundle sin stock.`);
         }
       }
       const conflicts = source.flatMap((component) =>
