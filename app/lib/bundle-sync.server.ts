@@ -315,6 +315,30 @@ async function updatePrice(
   compareAtPrice: number | null,
 ) {
   const parent = product.variants.nodes[0];
+  // Recheck immediately before writing, so a merchant edit or a concurrent
+  // reconciliation does not silently overwrite a more recent manual price.
+  const latest = await query(admin, String.raw`#graphql
+    query CsbytePriceWebhookRecheck($id: ID!) {
+      product(id: $id) {
+        id
+        managedBy: metafield(namespace: "csbyte_bundle", key: "managed_by") { value }
+        snapshotMeta: metafield(namespace: "csbyte_bundle", key: "component_snapshot") {
+          value compareDigest
+        }
+        variants(first: 2) { nodes { id sku price compareAtPrice } }
+      }
+    }
+  `, { id: product.id });
+  const current = latest?.product;
+  if (!current || current.managedBy?.value !== "csbyte-commerce-tools" ||
+      current.snapshotMeta?.value !== product.snapshotMeta?.value ||
+      current.variants?.nodes?.length !== 1 ||
+      current.variants.nodes[0].id !== parent.id ||
+      current.variants.nodes[0].sku !== snapshot.sku ||
+      Number(current.variants.nodes[0].price) !== snapshot.finalPrice ||
+      current.snapshotMeta?.compareDigest !== product.snapshotMeta?.compareDigest) {
+    throw new Error("El Bundle cambió durante la sincronización; se respetará la edición manual.");
+  }
   const result = await query(admin, String.raw`#graphql
     mutation CsbyteSyncManagedBundlePrice($id: ID!, $variants: [ProductVariantsBulkInput!]!) {
       productVariantsBulkUpdate(productId: $id, variants: $variants) {
