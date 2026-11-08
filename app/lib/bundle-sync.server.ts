@@ -46,6 +46,7 @@ type Snapshot = {
   schemaVersion: number;
   sku: string;
   finalPrice: number;
+  compareAtPrice?: number | null;
   base: { productId: string; variantId: string };
   monitor: { productId: string; variantId: string };
   keyboardMouse: { productId: string; variantId: string };
@@ -413,6 +414,65 @@ async function updateBundleWeight(admin: Admin, product: ManagedProduct, snapsho
   return expected;
 }
 
+/**
+ * Establish a safe baseline for legacy snapshots only when the live compare-at
+ * already matches the price calculated from current components.
+ * Read again and use CAS to avoid stomping any concurrent metadata edit.
+ */
+async function establishCompareAtBaseline(
+  admin: Admin,
+  product: ManagedProduct,
+  snapshot: Snapshot,
+  compareAtPrice: number | null,
+) {
+  const latest = await query(admin, String.raw`#graphql
+    query CsbyteCompareBaselineRecheck($id: ID!) {
+      product(id: $id) {
+        id
+        managedBy: metafield(namespace: "csbyte_bundle", key: "managed_by") { value }
+        snapshotMeta: metafield(namespace: "csbyte_bundle", key: "component_snapshot") {
+          value compareDigest
+        }
+        variants(first: 2) { nodes { id sku price compareAtPrice } }
+      }
+    }
+  `, { id: product.id });
+  const current = latest?.product;
+  if (!current || current.managedBy?.value !== "csbyte-commerce-tools" ||
+      current.snapshotMeta?.value !== product.snapshotMeta?.value ||
+      current.snapshotMeta?.compareDigest !== product.snapshotMeta?.compareDigest ||
+      current.variants?.nodes?.length !== 1 ||
+      current.variants.nodes[0].id !== product.variants.nodes[0].id ||
+      current.variants.nodes[0].sku !== snapshot.sku ||
+      Number(current.variants.nodes[0].price) !== snapshot.finalPrice ||
+      (current.variants.nodes[0].compareAtPrice == null ? null :
+        Number(current.variants.nodes[0].compareAtPrice)) !== compareAtPrice) {
+    throw new Error("El Bundle cambió mientras se inicializaba la protección; revisión manual requerida.");
+  }
+  const result = await query(admin, String.raw`#graphql
+    mutation CsbytePersistCompareBaseline($inputs: [MetafieldsSetInput!]!) {
+      metafieldsSet(metafields: $inputs) {
+        metafields { id value }
+        userErrors { field message }
+      }
+    }
+  `, {
+    inputs: [{
+      ownerId: product.id,
+      namespace: NAMESPACE,
+      key: "component_snapshot",
+      type: "json",
+      value: JSON.stringify({ ...snapshot, compareAtPrice }),
+      compareDigest: product.snapshotMeta?.compareDigest ?? null,
+    }],
+  });
+  const payload = result?.metafieldsSet;
+  if (payload?.userErrors?.length || !payload?.metafields?.[0]) {
+    throw new Error(payload?.userErrors?.map((e: {message: string}) => e.message).join(" · ") ||
+      "Shopify no confirmó la protección del precio de comparación.");
+  }
+}
+
 async function updatePrice(
   admin: Admin,
   product: ManagedProduct,
@@ -442,6 +502,8 @@ async function updatePrice(
       current.variants.nodes[0].id !== parent.id ||
       current.variants.nodes[0].sku !== snapshot.sku ||
       Number(current.variants.nodes[0].price) !== snapshot.finalPrice ||
+      (current.variants.nodes[0].compareAtPrice == null ? null :
+        Number(current.variants.nodes[0].compareAtPrice)) !== snapshot.compareAtPrice ||
       current.snapshotMeta?.compareDigest !== product.snapshotMeta?.compareDigest) {
     throw new Error("El Bundle cambió durante la sincronización; se respetará la edición manual.");
   }
@@ -469,7 +531,7 @@ async function updatePrice(
 
   // The snapshot is our optimistic guard against overwriting manual prices.
   // Retain all original component identities and metadata.
-  const nextSnapshot = { ...snapshot, finalPrice: price };
+  const nextSnapshot = { ...snapshot, finalPrice: price, compareAtPrice };
   const meta = await query(admin, String.raw`#graphql
     mutation CsbyteUpdateBundlePriceSnapshot($inputs: [MetafieldsSetInput!]!) {
       metafieldsSet(metafields: $inputs) {
@@ -656,7 +718,9 @@ export async function runManagedBundleSync(
         }
         if (problems.length) {
           const name = c.componentProduct.title.split(" (")[0].trim();
-          row.issues.push(`${roles[i]} — ${name}: ${problems.join(" y ")}.`);
+          for (const problem of problems) {
+            row.issues.push(`${roles[i]} — ${name}: ${problem}.`);
+          }
         }
       }
       if (unavailableComponent && options.apply &&
@@ -738,7 +802,11 @@ export async function runManagedBundleSync(
         }
       }
 
-      if (row.issues.length) continue;
+      // A zero-stock warning must not block valid price updates. Shopify
+      // handles sellability automatically for published native Bundles.
+      const onlyStockWarning = (issue: string) =>
+        issue.endsWith(": sin stock verificable.");
+      if (row.issues.some(issue => !onlyStockWarning(issue))) continue;
 
       if (!runtime.priceConfig.configured) {
         row.issues.push("Falta configurar la regla de precios para habilitar la actualización automática.");
@@ -772,6 +840,32 @@ export async function runManagedBundleSync(
       }
 
       const previousCompare = parent.compareAtPrice == null ? null : Number(parent.compareAtPrice);
+      if (!Object.prototype.hasOwnProperty.call(snapshot, "compareAtPrice")) {
+        // Older snapshots have no trustworthy comparison-price baseline.
+        // Adopt ONLY an already-correct compare-at; mismatches require
+        // manual review instead of assuming they are safe to overwrite.
+        if (previousCompare !== wantedCompare) {
+          row.issues.push("Precio de comparación heredado sin referencia segura; requiere revisión manual.");
+          continue;
+        }
+        if (!options.apply) {
+          row.issues.push("Falta inicializar la protección del precio de comparación.");
+          continue;
+        }
+        try {
+          await establishCompareAtBaseline(admin, product, snapshot, previousCompare);
+          row.issues.push("Protección del precio de comparación inicializada; reejecutar sincronización.");
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Error de Shopify.";
+          row.issues.push("No se pudo inicializar la protección del precio de comparación: " + message);
+          report.errors.push(`${product.title}: ${message}`);
+        }
+        continue;
+      }
+      if (previousCompare !== snapshot.compareAtPrice) {
+        row.issues.push("Precio de comparación editado fuera de la app; no se sobrescribirá.");
+        continue;
+      }
       if (row.price === wanted && previousCompare === wantedCompare) continue;
 
       const salePriceChanged = row.price !== wanted;
@@ -786,7 +880,7 @@ export async function runManagedBundleSync(
 
       try {
         await updatePrice(admin, product, snapshot, wanted, wantedCompare);
-        row.issues = [];
+        row.issues = row.issues.filter(issue => issue.endsWith(": sin stock verificable."));
         row.price = wanted;
         row.updated = true;
         if (!row.weightUpdated) report.updated++;
