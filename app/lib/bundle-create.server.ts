@@ -1567,6 +1567,9 @@ async function writeBundleMetadata(
   finalPrice:
     number,
 
+  compareAtPrice:
+    number | null,
+
   weightGrams:
     number,
 ) {
@@ -1620,6 +1623,9 @@ async function writeBundleMetadata(
     sku,
 
     finalPrice,
+
+    // Expected compare-at is part of the optimistic price guard.
+    compareAtPrice,
 
     weightGrams,
 
@@ -2901,6 +2907,7 @@ export async function createDraftBundleFromCandidate(
       components,
       freshExpectedSku,
       price.finalPrice,
+      price.componentPrice > price.finalPrice ? price.componentPrice : null,
       bundleWeight.weightGrams,
     );
 
