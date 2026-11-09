@@ -1,0 +1,10 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    {
+      "path": "/api/bundle-sync",
+      "schedule": "0 8 * * *"
+    }
+  ],
+  "buildCommand": "npm run test:bundles && npm run typecheck && npm run build"
+}

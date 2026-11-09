@@ -473,10 +473,18 @@ export async function loadBundleDiagnostics(
   admin:
     AdminGraphqlClient,
 ): Promise<BundleDiagnostics> {
-  const configResponse =
-    await admin.graphql(
-      `#graphql
-        query BundleDiagnosticConfig {
+  const [
+    configResponse,
+    allPcProducts,
+    monitorProducts,
+    refurbishedMonitorProducts,
+    keyboardProducts,
+    wifiProducts,
+  ] =
+    await Promise.all([
+      admin.graphql(
+        `#graphql
+          query BundleDiagnosticConfig {
           currentAppInstallation {
             monitorSelection: metafield(
               namespace: "${CONFIG_NAMESPACE}"
@@ -514,8 +522,34 @@ export async function loadBundleDiagnostics(
             }
           }
         }
-      `,
-    );
+        `,
+      ),
+
+      fetchProductsByType(
+        admin,
+        "PC de Escritorio",
+      ),
+
+      fetchProductsByType(
+        admin,
+        "Monitor",
+      ),
+
+      fetchProductsByType(
+        admin,
+        "Monitor reacondicionado",
+      ),
+
+      fetchProductsByType(
+        admin,
+        "Combo Teclado y Mouse",
+      ),
+
+      fetchProductsByType(
+        admin,
+        "Adaptador WiFi",
+      ),
+    ]);
 
   const configJson =
     (await configResponse.json()) as {
@@ -590,12 +624,6 @@ export async function loadBundleDiagnostics(
         ?.value,
     );
 
-  const allPcProducts =
-    await fetchProductsByType(
-      admin,
-      "PC de Escritorio",
-    );
-
   const excludedCustomBuildProducts =
     allPcProducts.filter(
       isCustomBuildProduct,
@@ -627,32 +655,9 @@ export async function loadBundleDiagnostics(
     );
 
   const monitors = [
-    ...(
-      await fetchProductsByType(
-        admin,
-        "Monitor",
-      )
-    ),
-
-    ...(
-      await fetchProductsByType(
-        admin,
-        "Monitor reacondicionado",
-      )
-    ),
+    ...monitorProducts,
+    ...refurbishedMonitorProducts,
   ];
-
-  const keyboardProducts =
-    await fetchProductsByType(
-      admin,
-      "Combo Teclado y Mouse",
-    );
-
-  const wifiProducts =
-    await fetchProductsByType(
-      admin,
-      "Adaptador WiFi",
-    );
 
   const authorizedMonitors =
     monitors.filter(

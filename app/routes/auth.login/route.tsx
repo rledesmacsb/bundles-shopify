@@ -30,17 +30,17 @@ export default function Auth() {
     <AppProvider embedded={false}>
       <s-page>
         <Form method="post">
-        <s-section heading="Log in">
+        <s-section heading="Acceder a Bundles">
           <s-text-field
             name="shop"
-            label="Shop domain"
-            details="example.myshopify.com"
+            label="Dominio de la tienda"
+            details="tu-tienda.myshopify.com"
             value={shop}
             onChange={(e) => setShop(e.currentTarget.value)}
             autocomplete="on"
             error={errors.shop}
           ></s-text-field>
-          <s-button type="submit">Log in</s-button>
+          <s-button variant="primary" type="submit">Continuar</s-button>
         </s-section>
         </Form>
       </s-page>
