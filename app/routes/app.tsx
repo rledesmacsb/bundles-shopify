@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 import type {
   HeadersFunction,
   LoaderFunctionArgs,
@@ -59,6 +61,7 @@ export const shouldRevalidate =
 ========================================================= */
 
 export default function App() {
+  const [menuOpen, setMenuOpen] = useState(false);
   const {
     apiKey,
   } =
@@ -171,6 +174,10 @@ export default function App() {
           .csbyte-app-sidebar-title { display: none; }
           .csbyte-app-sidebar-toggle {
             display: block;
+            width: 100%;
+            text-align: left;
+            background: transparent;
+            border: 0;
             padding: 10px 12px;
             font-weight: 600;
             color: var(--csbyte-sidebar-active);
@@ -178,7 +185,7 @@ export default function App() {
             list-style-position: inside;
           }
           .csbyte-app-sidebar-links { display: none; }
-          .csbyte-app-sidebar[open] .csbyte-app-sidebar-links {
+           .csbyte-app-sidebar-links[data-open="true"] {
             display: flex;
             margin-top: 6px;
           }
@@ -186,11 +193,23 @@ export default function App() {
       `}</style>
 
       <div className="csbyte-app-shell">
-        <details className="csbyte-app-sidebar" open={undefined}>
-          <summary className="csbyte-app-sidebar-toggle">
+        <aside className="csbyte-app-sidebar">
+          <button
+            type="button"
+            className="csbyte-app-sidebar-toggle"
+            aria-expanded={menuOpen}
+            aria-controls="csbyte-app-sidebar-links"
+            onClick={() => setMenuOpen(value => !value)}
+          >
             Menú de Bundles
-          </summary>
-          <nav className="csbyte-app-sidebar-links" aria-label="Navegación de CSBYTE Bundles">
+          </button>
+          <nav
+            id="csbyte-app-sidebar-links"
+            className="csbyte-app-sidebar-links"
+            data-open={menuOpen}
+            aria-label="Navegación de CSBYTE Bundles"
+            onClick={() => setMenuOpen(false)}
+          >
             <span className="csbyte-app-sidebar-title">Bundles</span>
             <NavLink to="/app/bundles" className="csbyte-app-sidebar-link">
               Bundles
@@ -214,7 +233,7 @@ export default function App() {
               Productos con problemas
             </NavLink>
           </nav>
-        </details>
+        </aside>
 
         <main className="csbyte-app-main">
           <Outlet />
